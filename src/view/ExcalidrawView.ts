@@ -2051,6 +2051,7 @@ export default class ExcalidrawView extends TextFileView implements HoverParent{
     this.restoreMobileLeaves();
     this.semaphores.viewunload = true;
     this.semaphores.popoutUnload = (this.ownerDocument !== document) && (this.ownerDocument.body.querySelectorAll(".workspace-tab-header").length === 0);
+    this.plugin.garden?.onViewUnload(this); // garden fork
 
     if(this.getHookServer().onViewUnloadHook) {
       try {
@@ -2823,6 +2824,7 @@ export default class ExcalidrawView extends TextFileView implements HoverParent{
     this.loadSceneFiles();
     this.updateContainerSize(null, true, justloaded);
     this.initializeToolsIconPanelAfterLoading();
+    this.plugin.garden?.onViewReady(this); // garden fork
   }
 
   public setDirty(location?:number) {
@@ -3969,6 +3971,7 @@ export default class ExcalidrawView extends TextFileView implements HoverParent{
   }
 
   private onChange (et: ExcalidrawElement[], st: AppState) {
+    this.plugin.garden?.onSceneChange(this, et); // garden fork
     if(st.newElement?.type === "freedraw") {
       this.freedrawLastActiveTimestamp = Date.now();
     }

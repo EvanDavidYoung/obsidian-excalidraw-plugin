@@ -1,3 +1,4 @@
+import { Garden } from "src/garden"; // garden fork
 import {
   TFile,
   Plugin,
@@ -122,6 +123,7 @@ export default class ExcalidrawPlugin extends Plugin {
   private fileExplorerObserver: MutationObserver | CustomMutationObserver;
   public opencount: number = 0;
   public ea: ExcalidrawAutomate;
+  public garden: Garden; // garden fork
   //A master list of fileIds to facilitate copy / paste
   public filesMaster: Map<FileId, FileMasterInfo> =
     null; //fileId, path
@@ -314,6 +316,10 @@ export default class ExcalidrawPlugin extends Plugin {
 
     this.app.workspace.onLayoutReady(this.onloadOnLayoutReady.bind(this));
     this.logStartupEvent("Workspace ready event handler added");
+
+    // garden fork: card queue + MCP board link (src/garden)
+    this.garden = new Garden(this);
+    this.garden.load().catch((e) => console.error("Garden failed to load", e));
   }
 
   private async onloadCheckForOnceOffSettingsUpdates() {
@@ -1172,6 +1178,9 @@ export default class ExcalidrawPlugin extends Plugin {
 
     this.ea.destroy();
     this.ea = null;
+
+    this.garden?.unload(); // garden fork
+    this.garden = null;
     
     window.ExcalidrawAutomate?.destroy();
     delete window.ExcalidrawAutomate;
