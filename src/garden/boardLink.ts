@@ -1,6 +1,6 @@
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import type { AppState, BinaryFileData, ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { lib } from "./excalidraw";
+import { CaptureUpdate, lib } from "./excalidraw";
 import { McpBoard, mergeScenes, upsertElements, type BoardEvents, type BoardStatus, type ExportRequest, type ViewportRequest } from "./mcpBoard";
 
 /**
@@ -14,7 +14,7 @@ import { McpBoard, mergeScenes, upsertElements, type BoardEvents, type BoardStat
 /** The parts of Excalidraw's imperative API this needs. */
 export type SceneApi = Pick<
   ExcalidrawImperativeAPI,
-  "getSceneElementsIncludingDeleted" | "getSceneElements" | "updateScene" | "addFiles" | "getAppState" | "getFiles" | "scrollToContent"
+  "getSceneElementsIncludingDeleted" | "getSceneElements" | "updateScene" | "addFiles" | "getAppState" | "getFiles" | "setViewport"
 >;
 
 type Board = Pick<McpBoard, "connect" | "close" | "push">;
@@ -39,6 +39,15 @@ function normalise(incoming: readonly ExcalidrawElement[], local: readonly Excal
     ? convertToExcalidrawElements(skeletons as never, { regenerateIds: false })
     : [];
   return restoreElements([...full, ...built], local, { repairBindings: true });
+}
+
+/** setViewport has no zoom factor; below 1 it's the share of the view the content fills. */
+function margin(req: ViewportRequest, api: SceneApi) {
+  const factor = req.viewportZoomFactor;
+  if (factor === undefined || factor <= 0 || factor >= 1) return {};
+  const { width, height } = api.getAppState();
+  const [x, y] = [(width * (1 - factor)) / 2, (height * (1 - factor)) / 2];
+  return { offsets: { top: y, bottom: y, left: x, right: x } };
 }
 
 export class BoardLink {
@@ -81,7 +90,7 @@ export class BoardLink {
 
   /** Shows a scene the board has too, without making it an undo step. */
   private show(elements: readonly ExcalidrawElement[]) {
-    this.api.updateScene({ elements, storeAction: lib().StoreAction.UPDATE } as never);
+    this.api.updateScene({ elements, captureUpdate: CaptureUpdate.NEVER } as never);
     this.boardSees = fingerprint(elements);
   }
 
@@ -116,9 +125,9 @@ export class BoardLink {
         if (ids) {
           const targets = scene.filter(e => ids.includes(e.id));
           if (!targets.length) throw new Error(`Element ${ids.join(", ")} not found`);
-          api.scrollToContent(targets, { fitToViewport: ids.length > 1, viewportZoomFactor: req.viewportZoomFactor, animate: true });
+          api.setViewport({ target: targets, fit: ids.length > 1 ? "contain" : "none", animation: true, ...margin(req, api) });
         } else if (req.scrollToContent) {
-          api.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: req.viewportZoomFactor, animate: true });
+          api.setViewport({ target: scene, fit: "contain", animation: true, ...margin(req, api) });
         } else {
           const current = api.getAppState();
           api.updateScene({

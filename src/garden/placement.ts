@@ -1,5 +1,5 @@
 import type { ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { lib } from "./excalidraw";
+import { CaptureUpdate, lib } from "./excalidraw";
 import { imageDataURL, type Request } from "./notesApi";
 import { buildSiteElements, CARD_WIDTH, colourIndex, loadCardFonts, loadSiteImage } from "./siteCard";
 import type { Site } from "./sites";
@@ -27,7 +27,7 @@ export async function placeSite(
   const elements = buildSiteElements(site, colourIndex(site.id), x - CARD_WIDTH / 2, y - 24, image);
   api.updateScene({
     elements: [...api.getSceneElementsIncludingDeleted(), ...elements],
-    storeAction: lib().StoreAction.CAPTURE,
+    captureUpdate: CaptureUpdate.IMMEDIATELY,
   } as never);
 }
 
@@ -45,6 +45,6 @@ export function placeShelfItem(api: ExcalidrawImperativeAPI, item: ShelfItem, cl
   if (files.length) api.addFiles(files);
   api.updateScene({
     elements: [...api.getSceneElementsIncludingDeleted(), ...cloneForPlacement(item.elements, x, y)],
-    storeAction: lib().StoreAction.CAPTURE,
+    captureUpdate: CaptureUpdate.IMMEDIATELY,
   } as never);
 }

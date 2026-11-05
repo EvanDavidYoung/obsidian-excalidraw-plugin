@@ -1,10 +1,15 @@
-import { AppState, ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
+import {
+  AppState,
+  ExcalidrawImperativeAPI,
+} from "@zsviczian/excalidraw/types/excalidraw/types";
+import { ObsidianResetCustomPenState } from "@zsviczian/excalidraw/types/excalidraw/obsidianTypes";
+import type { FillStyle } from "@zsviczian/excalidraw/types/element/src/types";
 import clsx from "clsx";
 import { TFile } from "obsidian";
 import * as React from "react";
 import { DEVICE } from "src/constants/constants";
 import { PenSettingsModal } from "src/shared/Dialogs/PenSettingsModal";
-import ExcalidrawView from "src/view/ExcalidrawView";
+import type ExcalidrawView from "src/view/ExcalidrawView";
 import { PenStyle } from "src/types/penTypes";
 import { PENS } from "src/utils/pens";
 import ExcalidrawPlugin from "../../../core/main";
@@ -12,291 +17,452 @@ import { ICONS, penIcon, stringToSVG } from "../../../constants/actionIcons";
 import { UniversalInsertFileModal } from "src/shared/Dialogs/UniversalInsertFileModal";
 import { t } from "src/lang/helpers";
 import { getExcalidrawViews } from "src/utils/obsidianUtils";
+import { CaptureUpdateAction } from "src/constants/constants";
+import {
+  getAppStateStrokeWidthEntry,
+  getFreedrawStrokeWidthByKey,
+} from "src/utils/excalidrawAutomateUtils";
+import { ToolsPanel } from "./ToolsPanel";
 
-export function setPen (pen: PenStyle, api: any) {
+/** Aliased to the fork's canonical type (packages/excalidraw/types.ts) so
+ * the two repositories cannot drift apart. */
+export type ResetCustomPenState = ObsidianResetCustomPenState;
+
+export function setPen(pen: PenStyle, api: ExcalidrawImperativeAPI) {
   const st = api.getAppState();
-  api.updateScene({
-    appState: {
-      currentStrokeOptions: pen.penOptions,
-      ...(!pen.strokeWidth || (pen.strokeWidth === 0)) ? null : {currentItemStrokeWidth: pen.strokeWidth},
-      ...pen.backgroundColor ? {currentItemBackgroundColor: pen.backgroundColor} : null,
-      ...pen.strokeColor ? {currentItemStrokeColor: pen.strokeColor} : null,
-      ...pen.fillStyle === "" ? null : {currentItemFillStyle: pen.fillStyle},
-      ...pen.roughness ? null : {currentItemRoughness: pen.roughness},
-      ...pen.freedrawOnly && !st.resetCustomPen //switching from custom pen to next custom pen
-        ? {
+
+  const hasStrokeWidth = pen.strokeWidth && pen.strokeWidth !== 0;
+  const strokeWidthEntry = hasStrokeWidth
+    ? getAppStateStrokeWidthEntry(undefined, pen.strokeWidth)
+    : {};
+
+  // If the pen has a stroke width, the omitted key MUST be set to null to clear it out in Excalidraw.
+  // If no stroke width is defined, pass undefined to ignore it during the merge.
+  const currentItemStrokeWidthKey = hasStrokeWidth
+    ? "currentItemStrokeWidthKey" in strokeWidthEntry
+      ? strokeWidthEntry.currentItemStrokeWidthKey
+      : null
+    : undefined;
+
+  const currentItemStrokeWidth = hasStrokeWidth
+    ? "currentItemStrokeWidth" in strokeWidthEntry
+      ? strokeWidthEntry.currentItemStrokeWidth
+      : null
+    : undefined;
+
+  const nextAppState: Partial<AppState> = {
+    currentStrokeOptions: pen.penOptions ?? null,
+    ...(currentItemStrokeWidthKey !== undefined
+      ? { currentItemStrokeWidthKey: currentItemStrokeWidthKey }
+      : null),
+    ...(currentItemStrokeWidth !== undefined
+      ? { currentItemStrokeWidth: currentItemStrokeWidth }
+      : null),
+    currentItemStrokeVariability: pen.penOptions?.constantPressure
+      ? "constant"
+      : "variable",
+    ...(pen.backgroundColor
+      ? { currentItemBackgroundColor: pen.backgroundColor }
+      : null),
+    ...(pen.strokeColor ? { currentItemStrokeColor: pen.strokeColor } : null),
+    ...(pen.fillStyle === ""
+      ? null
+      : { currentItemFillStyle: pen.fillStyle as FillStyle }),
+    ...(pen.roughness !== null
+      ? { currentItemRoughness: pen.roughness }
+      : null),
+    // Removed the pen.freedrawOnly restriction so that ALL pens can be correctly manually disabled
+    ...(!st.resetCustomPen
+      ? {
           resetCustomPen: {
-            currentItemStrokeWidth:     st.currentItemStrokeWidth,
-            currentItemBackgroundColor: st.currentItemBackgroundColor,
-            currentItemStrokeColor:     st.currentItemStrokeColor,
-            currentItemFillStyle:       st.currentItemFillStyle,
-            currentItemRoughness:       st.currentItemRoughness,
-          }} 
-        : null,
-    },
-    storeAction: "update",
-  })
+            currentItemStrokeWidthKey:
+              (st.currentItemStrokeWidthKey) ?? null,
+            currentItemStrokeWidth: st.currentItemStrokeWidth ?? null,
+            currentItemStrokeVariability:
+              (st.currentItemStrokeVariability) ??
+              null,
+            currentItemBackgroundColor: st.currentItemBackgroundColor ?? null,
+            currentItemStrokeColor: st.currentItemStrokeColor ?? null,
+            currentItemFillStyle:
+              (st.currentItemFillStyle) ?? null,
+            currentItemRoughness: st.currentItemRoughness ?? null,
+          },
+        }
+      : null),
+  };
+
+  api.updateScene({
+    appState: nextAppState as Pick<AppState, keyof AppState>,
+    captureUpdate: CaptureUpdateAction.NEVER,
+  });
 }
 
-export function resetStrokeOptions (resetCustomPen:any, api: ExcalidrawImperativeAPI, clearCurrentStrokeOptions: boolean) {
+export function resetStrokeOptions(
+  resetCustomPen: ResetCustomPenState | null,
+  api: ExcalidrawImperativeAPI,
+  clearCurrentStrokeOptions: boolean,
+) {
+  const nextAppState: Partial<AppState> = {
+    ...(resetCustomPen
+      ? {
+          currentItemStrokeWidthKey:
+            (resetCustomPen.currentItemStrokeWidthKey as
+              | "extraThin"
+              | "thin"
+              | "medium"
+              | "bold"
+              | "extraBold") ?? null,
+          currentItemStrokeWidth: resetCustomPen.currentItemStrokeWidth ?? null,
+          currentItemBackgroundColor:
+            resetCustomPen.currentItemBackgroundColor ?? null,
+          currentItemStrokeColor: resetCustomPen.currentItemStrokeColor ?? null,
+          currentItemFillStyle:
+            (resetCustomPen.currentItemFillStyle as FillStyle) ?? null,
+          currentItemRoughness: resetCustomPen.currentItemRoughness ?? null,
+          currentItemStrokeVariability:
+            (resetCustomPen.currentItemStrokeVariability as
+              | "constant"
+              | "variable") ?? null,
+        }
+      : null),
+    resetCustomPen: null,
+    ...(clearCurrentStrokeOptions ? { currentStrokeOptions: null } : null),
+  };
+
   api.updateScene({
-    appState: {
-      ...resetCustomPen ? {
-        currentItemStrokeWidth:     resetCustomPen.currentItemStrokeWidth,
-        currentItemBackgroundColor: resetCustomPen.currentItemBackgroundColor,
-        currentItemStrokeColor:     resetCustomPen.currentItemStrokeColor,
-        currentItemFillStyle:       resetCustomPen.currentItemFillStyle,
-        currentItemRoughness:       resetCustomPen.currentItemRoughness,
-      }: null,
-      resetCustomPen: null,
-      ...clearCurrentStrokeOptions ? {currentStrokeOptions: null} : null,
-    },
-    storeAction: "update",
+    appState: nextAppState as Pick<AppState, keyof AppState>,
+    captureUpdate: CaptureUpdateAction.NEVER,
   });
 }
 
 export class ObsidianMenu {
-  private clickTimestamp:number[];
-  private activePen: PenStyle;
-  private longpressTimeout : { [key: number]: number } = {};
+  private clickTimestamp: number[];
+  private activePens: Record<number, PenStyle> = {};
+  private activePenIndex: number | null = null;
+  private pendingPenActivation = false;
+  private longpressTimeout: { [key: number]: number } = {};
   private prevClickTimestamp: number = 0;
   constructor(
     private plugin: ExcalidrawPlugin,
-    private toolsRef: React.MutableRefObject<any>,
+
+    private toolsRef: React.RefObject<ToolsPanel>,
     private view: ExcalidrawView,
   ) {
-    this.clickTimestamp = Array.from({length: Object.keys(PENS).length}, () => 0);
+    this.clickTimestamp = Array.from(
+      { length: Object.keys(PENS).length },
+      () => 0,
+    );
+  }
+
+  public invalidateCustomPenCache() {
+    this.activePens = {};
+  }
+
+  private getValidatedActivePenIndex(customPensCount: number): number | null {
+    if (customPensCount <= 0) {
+      return this.activePenIndex;
+    }
+
+    if (
+      this.activePenIndex === null ||
+      this.activePenIndex < 0 ||
+      this.activePenIndex >= customPensCount
+    ) {
+      this.activePenIndex = null;
+      return null;
+    }
+
+    return this.activePenIndex;
   }
 
   private actionCustomPenLabelClick(index: number, pen: PenStyle) {
     const now = Date.now();
-    const dblClick = now-this.clickTimestamp[index] < 500;
+    const dblClick = now - this.clickTimestamp[index] < 500;
     //open pen settings on double click
-    if(dblClick) {
-      const penSettings = new PenSettingsModal(this.plugin,this.view,index);
-      (async () => {
+    if (dblClick) {
+      const penSettings = new PenSettingsModal(this.plugin, this.view, index);
+      void (async () => {
         await this.plugin.loadSettings();
         penSettings.open();
       })();
       return;
     }
     this.clickTimestamp[index] = now;
-    
+
     const api = this.view.excalidrawAPI;
     const st = api.getAppState();
+    const activePenIndex = this.getValidatedActivePenIndex(
+      st.customPens?.length ?? this.plugin.settings.numberOfCustomPens,
+    );
+
+    const isPenActive = activePenIndex === index;
 
     //single second click to reset freedraw to default
-    if(st.currentStrokeOptions === pen.penOptions && st.activeTool.type === "freedraw") {
+    if (isPenActive && st.activeTool.type === "freedraw") {
+      this.activePenIndex = null;
       resetStrokeOptions(st.resetCustomPen, api, true);
       return;
     }
 
     //apply pen settings to canvas
-    this.activePen = {...pen};
-    setPen(pen,api);
-    api.setActiveTool({type:"freedraw"});
+    this.activePens[index] = this.activePens[index] ?? { ...pen };
+    this.activePenIndex = index;
+    this.pendingPenActivation = true;
+    setPen(this.activePens[index], api);
+    api.setActiveTool({ type: "freedraw" });
   }
 
-  private actionScriptButtonPonterUp(index: number, key: string) {
-    if(this.longpressTimeout[index]) {
+  private actionScriptButtonPointerUp(index: number, key: string) {
+    if (this.longpressTimeout[index]) {
       this.view.ownerWindow.clearTimeout(this.longpressTimeout[index]);
       this.longpressTimeout[index] = 0;
-      (async ()=>{
+      void (async () => {
         const f = this.view.app.vault.getAbstractFileByPath(key);
         if (f && f instanceof TFile) {
-          this.plugin.scriptEngine.executeScript(
+          await this.plugin.scriptEngine.executeScriptFile(
             this.view,
-            await this.view.app.vault.read(f),
+            f,
             this.plugin.scriptEngine.getScriptName(f),
-            f
           );
         }
-      })()
+      })();
     }
   }
 
-  private actionScriptButtonPointerDown(index: number, key: string) {
+  private actionScriptButtonPointerDown(
+    index: number,
+    key: string,
+    name: string,
+  ) {
     const now = Date.now();
-    if(this.longpressTimeout[index]>0) {
+    if (this.longpressTimeout[index] > 0) {
       this.view.ownerWindow.clearTimeout(this.longpressTimeout[index]);
       this.longpressTimeout[index] = 0;
     }
-    if(now-this.prevClickTimestamp >= 500) {
-      this.longpressTimeout[index] = this.view.ownerWindow.setTimeout(
-        () => {
-          this.longpressTimeout[index] = 0;
-          (async () =>{
-            await this.plugin.loadSettings();
-            const index = this.plugin.settings.pinnedScripts.indexOf(key)
-            if(index > -1) {
-              this.plugin.settings.pinnedScripts.splice(index,1);
-              this.view.excalidrawAPI?.setToast({message:`Pin removed: ${name}`, duration: 3000, closable: true});
-            } 
-            await this.plugin.saveSettings();
-            getExcalidrawViews(this.plugin.app).forEach(excalidrawView=>excalidrawView.updatePinnedScripts());
-          })()
-        },
-        1500
-      )
+    if (now - this.prevClickTimestamp >= 500) {
+      this.longpressTimeout[index] = this.view.ownerWindow.setTimeout(() => {
+        this.longpressTimeout[index] = 0;
+        void (async () => {
+          await this.plugin.loadSettings();
+          const index = this.plugin.settings.pinnedScripts.indexOf(key);
+          if (index > -1) {
+            this.plugin.settings.pinnedScripts.splice(index, 1);
+            this.view.excalidrawAPI?.setToast({
+              message: `Pin removed: ${name}`,
+              duration: 3000,
+              closable: true,
+            });
+          }
+          await this.plugin.saveSettings();
+          getExcalidrawViews(this.plugin.app, true).forEach((excalidrawView) =>
+            excalidrawView.updatePinnedScripts(),
+          );
+        })();
+      }, 1500);
     }
     this.prevClickTimestamp = now;
   }
 
-  private actionShowHideMenu (isMobile: boolean, appState: AppState) {
+  private actionShowHideMenu(isMobile: boolean, appState: AppState) {
     this.toolsRef.current.setTheme(appState.theme);
-    this.toolsRef.current.toggleVisibility(
-      appState.zenModeEnabled || isMobile,
-    );
+    this.toolsRef.current.toggleVisibility(appState.zenModeEnabled || isMobile);
   }
 
   private actionInsertAnyFile() {
     this.view.setCurrentPositionToCenter();
-    const insertFileModal = new UniversalInsertFileModal(this.plugin, this.view);
+    const insertFileModal = new UniversalInsertFileModal(
+      this.plugin,
+      this.view,
+    );
     insertFileModal.open();
   }
 
-  public renderCustomPens (isMobile: boolean, appState: AppState) {
-    return(
-      appState.customPens?.map((_,index)=>{
-        const pen = this.plugin.settings.customPens[index]
-        //Reset stroke setting when changing to a different tool
-        if( 
-          appState.resetCustomPen &&
-          appState.activeTool.type !== "freedraw" &&
-          appState.currentStrokeOptions === pen.penOptions
-        ) {
-          setTimeout(()=> resetStrokeOptions(appState.resetCustomPen, this.view.excalidrawAPI, false));
-        }
-        //if Pen settings are loaded, select custom pen when activating the freedraw element
-        if (
-          !appState.resetCustomPen &&
-          appState.activeTool.type === "freedraw" &&
-          appState.currentStrokeOptions === pen.penOptions &&
-          pen.freedrawOnly
-        ) {
-          setTimeout(()=>setPen(this.activePen,this.view.excalidrawAPI));
-        }
-
-        if(
-          this.activePen &&
-          appState.resetCustomPen &&
-          appState.activeTool.type === "freedraw" &&
-          appState.currentStrokeOptions === pen.penOptions &&
-          pen.freedrawOnly
-        ) {
-          this.activePen.strokeWidth = appState.currentItemStrokeWidth;
-          this.activePen.backgroundColor = appState.currentItemBackgroundColor;
-          this.activePen.strokeColor = appState.currentItemStrokeColor;
-          this.activePen.fillStyle = appState.currentItemFillStyle;
-          this.activePen.roughness = appState.currentItemRoughness;
-        }
-
-        return (
-          <label
-            key={index}
-            className={clsx(
-              "ToolIcon",
-              "ToolIcon_size_medium",
-              {
-                "is-mobile": isMobile,
-              },
-            )}
-            onClick={ this.actionCustomPenLabelClick.bind(this,index, pen) }
-          >
-            <div
-              className="ToolIcon__icon"
-              aria-label={DEVICE.isDesktop ? pen.type : undefined}
-              style={{
-                ...appState.activeTool.type === "freedraw" && appState.currentStrokeOptions === pen.penOptions
-                  ? {background: "var(--color-primary)"}
-                  : {}
-              }}
-            >
-              {penIcon(pen)}
-            </div>
-          </label>
-        )
-      })
-    )
+  private actionToggleFullscreen() {
+    if (this.view.isFullscreen()) {
+      this.view.exitFullscreen();
+    } else {
+      this.view.gotoFullscreen();
+    }
+    this.view.excalidrawAPI?.updateScene({
+      appState: {},
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
   }
 
-  public renderPinnedScriptButtons (isMobile: boolean, appState: AppState) {
-    return (
-      appState?.pinnedScripts?.map((key,index)=>{ //pinned scripts
-        const scriptProp = this.plugin.scriptEngine.scriptIconMap[key];
-        const name = scriptProp?.name ?? "";
-        const icon = scriptProp?.svgString
-          ? stringToSVG(scriptProp.svgString)
-          : ICONS.cog;
-        if(!this.longpressTimeout[index]) this.longpressTimeout[index] = 0;
-        return (
-          <label
-            key = {index}
-            className={clsx(
-              "ToolIcon",
-              "ToolIcon_size_medium",
-              {
-                "is-mobile": isMobile,
-              },
-            )}
-            onPointerUp={this.actionScriptButtonPonterUp.bind(this,index,key)}
-            onPointerDown={this.actionScriptButtonPointerDown.bind(this,index,key)}
+  public renderCustomPens(isMobile: boolean, appState: AppState) {
+    if (this.pendingPenActivation && appState.activeTool.type === "freedraw") {
+      this.pendingPenActivation = false;
+    }
+
+    const activePenIndex = this.getValidatedActivePenIndex(
+      appState.customPens?.length ?? 0,
+    );
+    return appState.customPens?.map((_, index) => {
+      const pen = this.plugin.settings.customPens[index];
+      const activePen = this.activePens[index] ?? pen;
+
+      const isPenActive = activePenIndex === index;
+
+      // Temporarily restore the base stroke settings outside freedraw while
+      // retaining the active pen so it can be reapplied on return.
+      if (
+        pen.freedrawOnly && // Enforce freedrawOnly so global pens do not auto-reset upon changing tools
+        appState.resetCustomPen &&
+        appState.activeTool.type !== "freedraw" &&
+        !this.pendingPenActivation &&
+        isPenActive
+      ) {
+        window.setTimeout(() =>
+          resetStrokeOptions(
+            appState.resetCustomPen,
+            this.view.excalidrawAPI,
+            false,
+          ),
+        );
+      }
+
+      //if Pen settings are loaded, select custom pen when activating the freedraw element
+      if (
+        !appState.resetCustomPen &&
+        appState.activeTool.type === "freedraw" &&
+        isPenActive &&
+        pen.freedrawOnly
+      ) {
+        window.setTimeout(() => setPen(activePen, this.view.excalidrawAPI));
+      }
+
+      if (
+        appState.resetCustomPen &&
+        appState.activeTool.type === "freedraw" &&
+        isPenActive &&
+        pen.freedrawOnly
+      ) {
+        const updatedActivePen = this.activePens[index] ?? { ...pen };
+        updatedActivePen.strokeWidth = getFreedrawStrokeWidthByKey(
+          appState.currentItemStrokeWidthKey,
+          appState.currentItemStrokeWidth,
+        );
+        updatedActivePen.backgroundColor = appState.currentItemBackgroundColor;
+        updatedActivePen.strokeColor = appState.currentItemStrokeColor;
+        updatedActivePen.fillStyle =
+          appState.currentItemFillStyle;
+        updatedActivePen.roughness = appState.currentItemRoughness;
+        this.activePens[index] = updatedActivePen;
+      }
+
+      return (
+        <label
+          key={index}
+          className={clsx("ToolIcon", "ToolIcon_size_medium", {
+            "is-mobile": isMobile,
+          })}
+          onClick={() => this.actionCustomPenLabelClick(index, pen)}
+        >
+          <div
+            className="ToolIcon__icon"
+            aria-label={DEVICE.isDesktop ? pen.type : undefined}
+            style={{
+              ...(appState.activeTool.type === "freedraw" && isPenActive
+                ? { background: "var(--color-primary)" }
+                : {}),
+            }}
           >
-            <div
-              className="ToolIcon__icon"
-              aria-label={DEVICE.isDesktop ? name : undefined}
-            >
-              {icon}
-            </div>
-          </label>
-        )
-      })
-    )
+            {penIcon(pen)}
+          </div>
+        </label>
+      );
+    });
   }
 
-  public renderButton (isMobile: boolean, appState: AppState) {
+  public renderPinnedScriptButtons(isMobile: boolean, appState: AppState) {
+    return appState?.pinnedScripts?.map((key, index) => {
+      //pinned scripts
+      const scriptProp = this.plugin.scriptEngine.scriptIconMap[key];
+      const name = scriptProp?.name ?? "";
+      const icon = scriptProp?.svgString
+        ? stringToSVG(scriptProp.svgString)
+        : ICONS.cog;
+      if (!this.longpressTimeout[index]) {
+        this.longpressTimeout[index] = 0;
+      }
+      return (
+        <label
+          key={index}
+          className={clsx("ToolIcon", "ToolIcon_size_medium", {
+            "is-mobile": isMobile,
+          })}
+          onPointerUp={() => this.actionScriptButtonPointerUp(index, key)}
+          onPointerDown={() =>
+            this.actionScriptButtonPointerDown(index, key, name)
+          }
+        >
+          <div
+            className="ToolIcon__icon"
+            aria-label={DEVICE.isDesktop ? name : undefined}
+          >
+            {icon}
+          </div>
+        </label>
+      );
+    });
+  }
+
+  public renderButton(isMobile: boolean, appState: AppState) {
+    const isFullscreen = this.view.isFullscreen();
     return (
       <>
         <label
-          className={clsx(
-            "ToolIcon",
-            "ToolIcon_size_medium",
-            {
-              "is-mobile": isMobile,
-            },
-          )}
-          onClick={this.actionShowHideMenu.bind(this,isMobile,appState)}
+          className={clsx("ToolIcon", "ToolIcon_size_medium", {
+            "is-mobile": isMobile,
+          })}
+          onClick={() => this.actionShowHideMenu(isMobile, appState)}
         >
-          <div className="ToolIcon__icon" aria-label={t("OBSIDIAN_TOOLS_PANEL")}>
+          <div
+            className="ToolIcon__icon"
+            aria-label={t("OBSIDIAN_TOOLS_PANEL")}
+          >
             {ICONS.obsidian}
           </div>
         </label>
         <label
-          className={clsx(
-            "ToolIcon",
-            "ToolIcon_size_medium",
-            {
-              "is-mobile": isMobile,
-            },
-          )}
-          onClick={this.actionInsertAnyFile.bind(this)}
+          className={clsx("ToolIcon", "ToolIcon_size_medium", {
+            "is-mobile": isMobile,
+          })}
+          onClick={() => this.actionInsertAnyFile()}
         >
           <div className="ToolIcon__icon" aria-label={t("UNIVERSAL_ADD_FILE")}>
             {ICONS["add-file"]}
           </div>
         </label>
-        {this.renderCustomPens(isMobile,appState)}
-        {this.renderPinnedScriptButtons(isMobile,appState)}
+        <label
+          className={clsx("ToolIcon", "ToolIcon_size_medium", {
+            "is-mobile": isMobile,
+          })}
+          onClick={() => this.actionToggleFullscreen()}
+        >
+          <div
+            className="ToolIcon__icon"
+            aria-label={
+              isFullscreen ? t("EXIT_FULLSCREEN") : t("GOTO_FULLSCREEN")
+            }
+          >
+            {isFullscreen ? ICONS.exitFullScreen : ICONS.gotoFullScreen}
+          </div>
+        </label>
+        {this.renderCustomPens(isMobile, appState)}
+        {this.renderPinnedScriptButtons(isMobile, appState)}
       </>
     );
-  };
+  }
 
   destroy() {
-    Object.values(this.longpressTimeout).forEach(
-      t=>this.view.ownerWindow.clearTimeout(t)
+    Object.values(this.longpressTimeout).forEach((t) =>
+      this.view.ownerWindow.clearTimeout(t),
     );
     this.longpressTimeout = {};
-    this.activePen = null;
+    this.activePens = {};
+    this.activePenIndex = null;
+    this.pendingPenActivation = false;
     this.plugin = null;
     this.toolsRef = null;
     this.view = null;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import { buildSiteElements, CARD_WIDTH, loadSiteImage, type LoadedImage } from "./siteCard";
 import type { Site } from "./sites";
 
@@ -122,7 +122,12 @@ describe("loadSiteImage", () => {
   // Each test uses its own site id because loaded images are cached by id.
   const withImage = (id: string): Site => ({ id, name: id, url: "https://example.com", image: `/sites/${id}.png` });
 
-  const pngResponse = () => new Response(new Blob(["png"]), { headers: { "content-type": "image/png" } });
+  const pngResponse = () => {
+    const response = new Response(new Blob(["png"]), { headers: { "content-type": "image/png" } });
+    // Node's Response gives a Node Blob, which jsdom's FileReader won't read.
+    response.blob = async () => new Blob(["png"], { type: "image/png" });
+    return response;
+  };
 
   function stubImageDecoding(width: number, height: number) {
     vi.stubGlobal("Image", class {

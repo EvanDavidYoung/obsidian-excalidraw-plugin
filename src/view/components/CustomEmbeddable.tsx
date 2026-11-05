@@ -1,32 +1,505 @@
-import {  NonDeletedExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
-import ExcalidrawView from "src/view/ExcalidrawView";
-import { Notice, WorkspaceLeaf, WorkspaceSplit } from "obsidian";
+import {
+  ExcalidrawElement,
+  ExcalidrawEmbeddableElement,
+} from "@zsviczian/excalidraw/types/element/src/types";
+import type ExcalidrawView from "src/view/ExcalidrawView";
+import { Notice, requireApiVersion } from "obsidian";
 import * as React from "react";
-import { ConstructableWorkspaceSplit, getContainerForDocument, isObsidianThemeDark } from "src/utils/obsidianUtils";
-import { DEVICE, EXTENDED_EVENT_TYPES, KEYBOARD_EVENT_TYPES } from "src/constants/constants";
-import { ExcalidrawImperativeAPI, UIAppState } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { ObsidianCanvasNode } from "src/view/managers/CanvasNodeFactory";
-import { processLinkText, patchMobileView, setFileToLocalGraph } from "src/utils/customEmbeddableUtils";
+import { isObsidianThemeDark } from "src/utils/obsidianUtils";
+import {
+  DEVICE,
+  EXTENDED_EVENT_TYPES,
+  KEYBOARD_EVENT_TYPES,
+} from "src/constants/constants";
+import {
+  ExcalidrawImperativeAPI,
+  UIAppState,
+} from "@zsviczian/excalidraw/types/excalidraw/types";
+import {
+  processLinkText,
+  patchMobileView,
+  setFileToLocalGraph,
+  createLeaf,
+  predictViewType,
+} from "src/utils/customEmbeddableUtils";
+import { mountEmbeddableHost } from "src/utils/embeddableMountPlan";
 import { EmbeddableMDCustomProps } from "src/shared/Dialogs/EmbeddableSettings";
+import { EmbeddableLeafRef } from "src/types/excalidrawViewTypes";
+import { t } from "src/lang/helpers";
+import { removeStyle, setStyle } from "src/utils/styleUtils";
+import { isInstanceOfHTMLElement } from "src/utils/typechecks";
+import { errorlog } from "src/utils/coreUtils";
 
-declare module "obsidian" {
-  interface Workspace {
-    floatingSplit: any;
+declare const mainDocument: Document;
+declare const deliberateCreateElement: (document: Document, tagName: string) => HTMLStyleElement;
+
+type PdfViewLike = {
+  containerEl?: HTMLElement;
+  viewer?: {
+    child?: {
+      pdfViewer?: {
+        setBackground?(color: string | null, isInverted: boolean): void;
+      };
+    };
+  };
+};
+
+type PdfObserverRef = React.RefObject<MutationObserver | null> & {
+  currentCleanup?: () => void;
+};
+
+const CANVAS_VIEWTYPES = new Set([
+  "markdown",
+  "bases",
+  "audio",
+  "video",
+  "pdf",
+]);
+
+const DATA_URL_IFRAME_SANDBOX = "allow-scripts allow-forms allow-popups";
+const DATA_URL_IFRAME_CSP =
+  "default-src 'none'; script-src https: data: 'unsafe-inline'; style-src https: 'unsafe-inline'; img-src https: data: blob:; font-src https: data:; connect-src https:; media-src https: data: blob:; frame-src https: data:; form-action https:; base-uri 'none'";
+
+function decodeDataUrlToHtml(dataUrl: string): string | null {
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex === -1) {
+    return null;
   }
 
-  interface WorkspaceSplit {
-    containerEl: HTMLDivElement;
+  const header = dataUrl.slice(0, commaIndex).toLowerCase();
+  const payload = dataUrl.slice(commaIndex + 1);
+
+  try {
+    return header.includes(";base64")
+      ? atob(payload)
+      : decodeURIComponent(payload);
+  } catch {
+    return null;
   }
 }
 
-function getTheme (view: ExcalidrawView, theme:string): string {
+function injectDefensiveCsp(html: string): string {
+  if (!html || /http-equiv\s*=\s*["']content-security-policy["']/i.test(html)) {
+    return html;
+  }
+
+  const cspTag = `<meta http-equiv="Content-Security-Policy" content="${DATA_URL_IFRAME_CSP}">`;
+
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (head) => `${head}${cspTag}`);
+  }
+
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(
+      /<html[^>]*>/i,
+      (htmlOpen) => `${htmlOpen}<head>${cspTag}</head>`,
+    );
+  }
+
+  return `<!doctype html><html><head>${cspTag}</head><body>${html}</body></html>`;
+}
+
+function getSandboxedDataUrlSrcDoc(src: string): string | null {
+  const decodedHtml = decodeDataUrlToHtml(src);
+  if (!decodedHtml) {
+    return null;
+  }
+  return injectDefensiveCsp(decodedHtml);
+}
+
+let noticeTimer: number;
+function showNoticeOnce(message: string) {
+  if (noticeTimer) {
+    return;
+  }
+  noticeTimer = window.setTimeout(() => {
+    noticeTimer = undefined;
+  }, 1000);
+  new Notice(message, 6000);
+}
+
+function getTheme(view: ExcalidrawView, theme: string): string {
   return view.excalidrawData.embeddableTheme === "dark"
-  ? "theme-dark"
-  : view.excalidrawData.embeddableTheme === "light" 
-    ? "theme-light"
-    : view.excalidrawData.embeddableTheme === "auto"
-      ? theme === "dark" ? "theme-dark" : "theme-light"
-      : isObsidianThemeDark() ? "theme-dark" : "theme-light";
+    ? "theme-dark"
+    : view.excalidrawData.embeddableTheme === "light"
+      ? "theme-light"
+      : view.excalidrawData.embeddableTheme === "auto"
+        ? theme === "dark"
+          ? "theme-dark"
+          : "theme-light"
+        : isObsidianThemeDark()
+          ? "theme-dark"
+          : "theme-light";
+}
+
+function setPDFViewTheme(view: ExcalidrawView, pdfView: PdfViewLike | null) {
+  if (!pdfView) {
+    return;
+  }
+  if (view.excalidrawData.embeddableTheme === "auto") {
+    pdfView.viewer?.child?.pdfViewer?.setBackground?.(null, false);
+    const pdfContainerEl = pdfView.containerEl?.querySelector(".pdf-container");
+    if (pdfContainerEl) {
+      pdfContainerEl.classList.remove("mod-themed");
+    }
+    const thumbnailViewEl = pdfView.containerEl?.querySelector(
+      ".pdf-thumbnail-view",
+    );
+    if (isInstanceOfHTMLElement(thumbnailViewEl)) {
+      setStyle(thumbnailViewEl, {
+        filter: "var(--theme-filter)",
+      });
+    }
+  } else {
+    const pdfViewerEl = pdfView.containerEl?.querySelector("div.pdfViewer");
+    if (pdfViewerEl) {
+      pdfViewerEl.addClass("mod-nofilter");
+    }
+  }
+  if (["dark", "light"].includes(view.excalidrawData.embeddableTheme)) {
+    const pdfContainerEl = pdfView.containerEl?.querySelector(".pdf-container");
+    if (pdfContainerEl && !pdfContainerEl.classList.contains("mod-themed")) {
+      pdfContainerEl.classList.add("mod-themed");
+    }
+  }
+  if (view.excalidrawData.embeddableTheme === "light") {
+    pdfView.viewer?.child?.pdfViewer?.setBackground?.(null, false);
+  }
+  if (view.excalidrawData.embeddableTheme === "dark") {
+    pdfView.viewer?.child?.pdfViewer?.setBackground?.(
+      mainDocument.body.getCssPropertyValue("--color-base-00"),
+      true,
+    );
+  }
+}
+
+function setupPdfViewEnhancements(
+  view: ExcalidrawView,
+  leafRef: React.RefObject<EmbeddableLeafRef | null>,
+  pdfObserverRef: PdfObserverRef,
+  pdfObserverDisabledRef: React.RefObject<boolean>,
+) {
+  const pdfView = leafRef.current?.node?.child;
+  if (!pdfView) {
+    return;
+  }
+
+  const patchPDF = () => {
+    // Disable observer while applying the theme to avoid loops
+    pdfObserverDisabledRef.current = true;
+    setPDFViewTheme(view, pdfView);
+    window.requestAnimationFrame(() => {
+      pdfObserverDisabledRef.current = false;
+    });
+
+    // Observe inline height changes on the PDF root container and reset them
+    // this could be an obsidian bug, should be revisted later 2025-08-23
+    const containerEl = pdfView.containerEl;
+    let prevHeight = containerEl?.style?.height || "";
+    let heightObserver: MutationObserver | null = null;
+    if (containerEl) {
+      heightObserver = new MutationObserver(() => {
+        const h = containerEl.style.height || "";
+        if (h !== prevHeight) {
+          prevHeight = h;
+          if (h) {
+            setStyle(containerEl, {
+              height: "",
+            });
+            prevHeight = "";
+          }
+        }
+      });
+      heightObserver.observe(containerEl, {
+        attributes: true,
+        attributeFilter: ["style"],
+      });
+    }
+
+    // Transform-aware MMB drag-to-scroll (bypasses Chromium autoscroll)
+    const scroller =
+      pdfView.containerEl?.querySelector(".pdf-viewer-container") || null;
+    let active = false;
+    let lastX = 0;
+    let lastY = 0;
+    let scaleX = 1;
+    let scaleY = 1;
+
+    const getScaleFromAncestor = (target: Element | null) => {
+      // Read scale from the outer excalidraw embeddable container transform
+      const container = target?.closest(".excalidraw__embeddable-container");
+      if (!container) {
+        return { sx: 1, sy: 1 };
+      }
+      const t = getComputedStyle(container).transform;
+      // t can be "none", "matrix(a,b,c,d,tx,ty)" or "matrix3d(...)"
+      if (!t || t === "none") {
+        return { sx: 1, sy: 1 };
+      }
+      if (t.startsWith("matrix3d(")) {
+        // matrix3d: m11=a1, m12=b1, m21=a2, m22=b2 in the first 6 entries
+        const m = t.slice(9, -1).split(",").map(Number);
+        const a = m[0];
+        const b = m[1];
+        const c = m[4];
+        const d = m[5];
+        // scaleX = length of first column, scaleY = length of second column
+        return { sx: Math.hypot(a, b) || 1, sy: Math.hypot(c, d) || 1 };
+      }
+      if (t.startsWith("matrix(")) {
+        const m = t.slice(7, -1).split(",").map(Number); // [a,b,c,d,tx,ty]
+        const a = m[0];
+        const b = m[1];
+        const c = m[2];
+        const d = m[3];
+        return { sx: Math.hypot(a, b) || 1, sy: Math.hypot(c, d) || 1 };
+      }
+      return { sx: 1, sy: 1 };
+    };
+
+    const onPointerDownCapture = (e: PointerEvent) => {
+      if (
+        (DEVICE.isDesktop && e.button !== 1) ||
+        (DEVICE.isMobile && e.button !== 0) ||
+        !scroller
+      ) {
+        return;
+      }
+      // Start custom pan, cancel browser autoscroll and prevent Excalidraw from handling it.
+      e.preventDefault();
+      e.stopPropagation();
+
+      active = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      const { sx, sy } = getScaleFromAncestor(scroller);
+      scaleX = sx;
+      scaleY = sy;
+
+      // Listen on window so we keep panning even if we leave the element.
+      window.addEventListener("pointermove", onPointerMove, { capture: true });
+      window.addEventListener("pointerup", onPointerUp, {
+        capture: true,
+        once: true,
+      });
+      window.addEventListener("pointercancel", onPointerUp, {
+        capture: true,
+        once: true,
+      });
+
+      try {
+        setStyle(view.contentEl, {
+          cursor: "grabbing",
+        });
+      } catch (error: unknown) {
+        errorlog({
+          where: "CustomEmbeddable.onPointerDownCapture",
+          fn: "setStyle",
+          error: error,
+        });
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!active || !scroller) {
+        return;
+      }
+      // Continue only while the pointer button is held:
+      // - Desktop: middle mouse button (bit 3 = 4)
+      // - Mobile: primary/left button (bit 0 = 1)
+      if (
+        (DEVICE.isDesktop && (e.buttons & 4) === 0) ||
+        (DEVICE.isMobile && (e.buttons & 1) === 0)
+      ) {
+        return;
+      }
+
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      // Convert viewport dx/dy to local CSS px by dividing on scale.
+      scroller.scrollLeft -= dx / (scaleX || 1);
+      scroller.scrollTop -= dy / (scaleY || 1);
+
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const onPointerUp = (_e: PointerEvent) => {
+      active = false;
+      try {
+        setStyle(view.contentEl, {
+          cursor: "",
+        });
+      } catch (error: unknown) {
+        errorlog({
+          where: "CustomEmbeddable.onPointerUp",
+          fn: "setStyle",
+          error: error,
+        });
+      }
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerUp, true);
+    };
+
+    const root = pdfView.containerEl;
+    root?.addEventListener("pointerdown", onPointerDownCapture, {
+      capture: true,
+    });
+
+    const cleanupPan = () => {
+      root?.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("pointermove", onPointerMove, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerUp, true);
+      heightObserver?.disconnect();
+      heightObserver = null;
+    };
+    pdfObserverRef.currentCleanup = () => {
+      cleanupPan();
+    };
+
+    if (view.excalidrawData.embeddableTheme !== "default") {
+      const pdfContainerEl =
+        pdfView.containerEl?.querySelector(".pdf-container");
+      if (pdfContainerEl) {
+        pdfObserverRef.current?.disconnect();
+        pdfObserverRef.current = new MutationObserver(() => {
+          if (pdfObserverDisabledRef.current) {
+            return;
+          }
+          pdfObserverDisabledRef.current = true;
+          try {
+            setPDFViewTheme(view, pdfView);
+            if (view.excalidrawData.embeddableTheme !== "default") {
+              showNoticeOnce(t("NOTICE_PDF_THEME"));
+            }
+          } finally {
+            window.requestAnimationFrame(() => {
+              pdfObserverDisabledRef.current = false;
+            });
+          }
+        });
+        pdfObserverRef.current.observe(pdfContainerEl, {
+          attributes: true,
+          attributeFilter: ["class"],
+        });
+
+        // https://github.com/RyotaUshio/obsidian-pdf-plus/issues/477
+        // Watch for the PDF container being removed from DOM (e.g. by PDF+)
+        const rootEl = pdfView.containerEl;
+        if (rootEl) {
+          let detachObserver: MutationObserver | null = new MutationObserver(
+            (_muts, obs) => {
+              // If the tracked pdfContainerEl is gone/replaced, clean up and reattach
+              if (
+                !pdfContainerEl.isConnected ||
+                !rootEl.contains(pdfContainerEl)
+              ) {
+                obs.disconnect();
+                detachObserver = null;
+
+                // Cleanup existing handlers/observers
+                try {
+                  pdfObserverRef.currentCleanup?.();
+                } catch (error: unknown) {
+                  errorlog({
+                    where: "CustomEmbeddable.onPointerUp",
+                    fn: "pdfObserverRef.currentCleanup",
+                    error: error,
+                  });
+                }
+                try {
+                  pdfObserverRef.current?.disconnect();
+                } catch (error: unknown) {
+                  errorlog({
+                    where: "CustomEmbeddable.onPointerUp",
+                    fn: "pdfObserverRef.current.disconnect",
+                    error: error,
+                  });
+                }
+
+                // Re-setup on next tick to allow DOM to settle
+                window.setTimeout(() => {
+                  if (leafRef.current?.node?.child?.containerEl?.isConnected) {
+                    setupPdfViewEnhancements(
+                      view,
+                      leafRef,
+                      pdfObserverRef,
+                      pdfObserverDisabledRef,
+                    );
+                  }
+                }, 0);
+              }
+            },
+          );
+          detachObserver.observe(rootEl, { childList: true, subtree: true });
+
+          // Extend cleanup to also stop the detachObserver and the class observer
+          const prevCleanup = pdfObserverRef.currentCleanup;
+          pdfObserverRef.currentCleanup = () => {
+            try {
+              prevCleanup?.();
+            } catch (error: unknown) {
+              errorlog({
+                where: "CustomEmbeddable.onPointerUp",
+                fn: "pdfObserverRef.currentCleanup",
+                error: error,
+              });
+            }
+            try {
+              pdfObserverRef.current?.disconnect();
+            } catch (error: unknown) {
+              errorlog({
+                where: "CustomEmbeddable.onPointerUp",
+                fn: "pdfObserverRef.current.disconnect",
+                error: error,
+              });
+            }
+            try {
+              detachObserver?.disconnect();
+            } catch (error: unknown) {
+              errorlog({
+                where: "CustomEmbeddable.onPointerUp",
+                fn: "detachObserver.disconnect",
+                error: error,
+              });
+            }
+            detachObserver = null;
+          };
+        }
+      }
+    }
+  };
+
+  const root = leafRef?.current?.node?.child?.containerEl;
+  if (root) {
+    const selector = ".pdf-viewer-container";
+    const existing = root.querySelector(selector);
+    if (existing) {
+      patchPDF();
+    } else {
+      let timeoutId: number | null = null;
+      const mo = new MutationObserver((_, obs) => {
+        const el = root.querySelector(selector);
+        if (el) {
+          patchPDF();
+          obs.disconnect();
+          if (timeoutId) {
+            window.clearTimeout(timeoutId);
+          }
+        }
+      });
+      mo.observe(root, { childList: true, subtree: true });
+      timeoutId = window.setTimeout(() => {
+        mo.disconnect();
+      }, 10000);
+    }
+  }
 }
 
 //--------------------------------------------------------------------------------
@@ -34,16 +507,36 @@ function getTheme (view: ExcalidrawView, theme:string): string {
 //Vimeo and Youtube are rendered by Excalidraw because of the window messaging
 //required to control the video
 //--------------------------------------------------------------------------------
-export function renderWebView (src: string, view: ExcalidrawView, id: string, _: UIAppState):JSX.Element {
-  const isDataURL = src.startsWith("data:");
-  if(DEVICE.isDesktop && !isDataURL) {
+export function renderWebView(
+  src: string,
+  view: ExcalidrawView,
+  id: string,
+  _: UIAppState,
+): React.JSX.Element {
+  let isAllowed = false;
+  try {
+    const url = new URL(src);
+    // Explicitly allow safe protocols to prevent execution of
+    // javascript:, vbscript:, file:, etc.
+    isAllowed = ["http:", "https:", "data:"].includes(url.protocol);
+  } catch {
+    // If URL parsing fails, consider it unsafe
+    isAllowed = false;
+  }
+
+  const safeSrc = isAllowed ? src : "about:blank";
+
+  const isDataURL = safeSrc.startsWith("data:");
+  const srcDoc = isDataURL ? getSandboxedDataUrlSrcDoc(safeSrc) : null;
+  if (DEVICE.isDesktop && !isDataURL) {
     return (
       <webview
         ref={(ref) => view.updateEmbeddableRef(id, ref)}
         className="excalidraw__embeddable"
         title="Excalidraw Embedded Content"
         allowFullScreen={true}
-        src={src}
+        src={safeSrc}
+        webpreferences="autoplayPolicy=document-user-activation-required"
         style={{
           overflow: "hidden",
           borderRadius: "var(--embeddable-radius)",
@@ -57,13 +550,14 @@ export function renderWebView (src: string, view: ExcalidrawView, id: string, _:
       className="excalidraw__embeddable"
       title="Excalidraw Embedded Content"
       allowFullScreen={true}
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      src={isDataURL ? null : src}
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      sandbox={isDataURL ? DATA_URL_IFRAME_SANDBOX : undefined}
+      src={isDataURL ? null : safeSrc}
       style={{
         overflow: "hidden",
         borderRadius: "var(--embeddable-radius)",
       }}
-      srcDoc={isDataURL ? atob(src.split(',')[1]) : null}
+      srcDoc={srcDoc}
     />
   );
 }
@@ -71,245 +565,600 @@ export function renderWebView (src: string, view: ExcalidrawView, id: string, _:
 //--------------------------------------------------------------------------------
 //Render WorkspaceLeaf or CanvasNode
 //--------------------------------------------------------------------------------
-function RenderObsidianView(
-  { mdProps, element, linkText, view, containerRef, activeEmbeddable, theme, canvasColor }:{
+function RenderObsidianView({
+  mdProps,
+  element,
+  linkText,
+  view,
+  containerRef,
+  activeEmbeddable,
+  theme,
+  canvasColor,
+  selectedElementId,
+  sceneZoom,
+}: {
   mdProps: EmbeddableMDCustomProps;
-  element: NonDeletedExcalidrawElement;
+  element: ExcalidrawEmbeddableElement;
   linkText: string;
   view: ExcalidrawView;
   containerRef: React.RefObject<HTMLDivElement>;
-  activeEmbeddable: {element: NonDeletedExcalidrawElement; state: string};
+  activeEmbeddable: { element: ExcalidrawEmbeddableElement; state: string };
   theme: string;
   canvasColor: string;
-}): JSX.Element {
-  
+  selectedElementId: string;
+  sceneZoom: number;
+}): React.JSX.Element {
   const { subpath, file } = processLinkText(linkText, view);
 
   if (!file) {
     return null;
   }
   const React = view.packages.react;
-  
-  //@ts-ignore
-  const leafRef = React.useRef<{leaf: WorkspaceLeaf; node?: ObsidianCanvasNode, editNode?: Function} | null>(null);
+  const leafRef = React.useRef(
+    null,
+  ) as React.RefObject<EmbeddableLeafRef | null>;
   const isEditingRef = React.useRef(false);
+  const isPreviewRef = React.useRef(false);
   const isActiveRef = React.useRef(false);
+  const viewTypeRef = React.useRef("empty");
   const themeRef = React.useRef(theme);
-  const elementRef = React.useRef(element);
+  const pdfObserverRef = React.useRef<MutationObserver | null>(
+    null,
+  ) as PdfObserverRef;
+  const pdfObserverDisabledRef = React.useRef(false);
+  const mobilePatchCleanupRef = React.useRef<(() => void) | null>(null);
+  const initialViewFileRef = React.useRef(view.file);
+  const mdPropsRef = React.useRef(mdProps);
+  const fileRef = React.useRef(file);
+  const prevLockRef = React.useRef(mdProps?.lockedReadingMode);
 
   // Update themeRef when theme changes
   React.useEffect(() => {
     themeRef.current = theme;
   }, [theme]);
 
-  // Update elementRef when element changes
   React.useEffect(() => {
-    elementRef.current = element;
-  }, [element]);
- 
-  //--------------------------------------------------------------------------------
-  //block propagation of events to the parent if the iframe element is active
-  //--------------------------------------------------------------------------------
-  const stopPropagation = React.useCallback((event:React.PointerEvent<HTMLElement>) => {
-    if(isActiveRef.current) {
-      event.stopPropagation(); // Stop the event from propagating up the DOM tree
-    }
-  }, [isActiveRef.current]);
+    mdPropsRef.current = mdProps;
+    fileRef.current = file;
+  }, [mdProps, file]);
 
-  //runs once after mounting of the component and when the component is unmounted
+  //--------------------------------------------------------------------------------
+  //block propagation of events to the parent if the embeddable element is active
+  //--------------------------------------------------------------------------------
+  const stopPropagation = React.useCallback(
+    (event: Event) => {
+      if (isActiveRef.current) {
+        event.stopPropagation(); // Stop the event from propagating up the DOM tree
+      }
+    },
+    [isActiveRef.current],
+  );
+
+  //--------------------------------------------------------------------------------
+  // Handle hiding properties dynamically in both the host container and the editing iframe
+  //--------------------------------------------------------------------------------
   React.useEffect(() => {
-    if(!containerRef?.current) {
+    if (!containerRef.current || file.extension !== "md") {
       return;
     }
 
-    KEYBOARD_EVENT_TYPES.forEach((type) => containerRef.current.addEventListener(type, stopPropagation));
+    const isPropertiesVisible =
+      mdProps?.propertiesVisible !== false || mdProps?.useObsidianDefaults;
+
+    const hostStyleId = `excalidraw-hide-properties-style-host-${element.id}`;
+    let hostStyle = containerRef.current.querySelector(`#${hostStyleId}`);
+
+    if (!isPropertiesVisible) {
+      if (!hostStyle) {
+        hostStyle = deliberateCreateElement(view.ownerDocument, "style");
+        hostStyle.id = hostStyleId;
+        hostStyle.textContent = `
+          #embed-${element.id} .metadata-container { display: none; }
+          #embed-${element.id} .cm-line:has(.cm-hmd-frontmatter) { display: none; }
+        `;
+        containerRef.current.appendChild(hostStyle);
+      }
+    } else {
+      if (hostStyle) {
+        hostStyle.remove();
+      }
+    }
+
+    const updateIframe = () => {
+      const iframe: HTMLIFrameElement = containerRef.current?.querySelector(
+        "iframe.embed-iframe",
+      );
+      if (iframe && iframe.contentDocument && iframe.contentDocument.head) {
+        const iframeStyleId = "excalidraw-hide-properties-style-iframe";
+        let iframeStyle = iframe.contentDocument.getElementById(iframeStyleId);
+        if (!isPropertiesVisible) {
+          if (!iframeStyle) {
+            iframeStyle = deliberateCreateElement(iframe.contentDocument, "style");
+            iframeStyle.id = iframeStyleId;
+            iframeStyle.textContent = `
+              .metadata-container { display: none !important; }
+              .cm-line:has(.cm-hmd-frontmatter) { display: none !important; }
+            `;
+            iframe.contentDocument.head.appendChild(iframeStyle);
+          }
+        } else {
+          if (iframeStyle) {
+            iframeStyle.remove();
+          }
+        }
+      }
+    };
+
+    // Run immediately just in case the iframe is already present
+    updateIframe();
+
+    let iframeLoadHandler: () => void;
+
+    // Observe changes so when Obsidian mounts the editor iframe we style it immediately
+    const mo = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.addedNodes.length > 0) {
+          updateIframe();
+          const iframe: HTMLIFrameElement = containerRef.current?.querySelector(
+            "iframe.embed-iframe",
+          );
+          if (iframe) {
+            if (iframeLoadHandler) {
+              iframe.removeEventListener("load", iframeLoadHandler);
+            }
+            iframeLoadHandler = () => updateIframe();
+            // Wait for the blank document inside to complete loading
+            iframe.addEventListener("load", iframeLoadHandler, { once: true });
+          }
+        }
+      }
+    });
+
+    mo.observe(containerRef.current, { childList: true, subtree: true });
+
+    return () => {
+      mo.disconnect();
+      const iframe = containerRef.current?.querySelector("iframe.embed-iframe");
+      if (iframe && iframeLoadHandler) {
+        iframe.removeEventListener("load", iframeLoadHandler);
+      }
+    };
+  }, [
+    containerRef,
+    mdProps?.propertiesVisible,
+    mdProps?.useObsidianDefaults,
+    element.id,
+    file.extension,
+    view.ownerDocument,
+  ]);
+
+  //runs once after mounting of the component and when the component is unmounted
+  React.useEffect(() => {
+    if (!containerRef?.current) {
+      return;
+    }
+
+    KEYBOARD_EVENT_TYPES.forEach((type) =>
+      containerRef.current.addEventListener(type, stopPropagation),
+    );
     containerRef.current.addEventListener("click", handleClick);
 
     return () => {
-      if(!containerRef?.current) {
+      if (!containerRef?.current) {
         return;
       }
-      KEYBOARD_EVENT_TYPES.forEach((type) => containerRef.current.removeEventListener(type, stopPropagation));
-      EXTENDED_EVENT_TYPES.forEach((type) => containerRef.current.removeEventListener(type, stopPropagation));
+      KEYBOARD_EVENT_TYPES.forEach((type) =>
+        containerRef.current.removeEventListener(type, stopPropagation),
+      );
+      EXTENDED_EVENT_TYPES.forEach((type) =>
+        containerRef.current.removeEventListener(type, stopPropagation),
+      );
       containerRef.current.removeEventListener("click", handleClick);
     }; //cleanup on unmount
   }, []);
 
-  //blocking or not the propagation of events to the parent if the iframe is active
+  //blocking or not the propagation of events to the parent if the embeddable element is active
   React.useEffect(() => {
-    EXTENDED_EVENT_TYPES.forEach((type) => containerRef.current.removeEventListener(type, stopPropagation));
-    if(!containerRef?.current) {
+    EXTENDED_EVENT_TYPES.forEach((type) =>
+      containerRef.current.removeEventListener(type, stopPropagation),
+    );
+    if (!containerRef?.current) {
       return;
     }
 
-    if(isActiveRef.current) {
-      EXTENDED_EVENT_TYPES.forEach((type) => containerRef.current.addEventListener(type, stopPropagation));
+    if (isActiveRef.current) {
+      EXTENDED_EVENT_TYPES.forEach((type) =>
+        containerRef.current.addEventListener(type, stopPropagation),
+      );
     }
 
     return () => {
-      if(!containerRef?.current) {
+      if (!containerRef?.current) {
         return;
       }
-      EXTENDED_EVENT_TYPES.forEach((type) => containerRef.current.removeEventListener(type, stopPropagation));
+      EXTENDED_EVENT_TYPES.forEach((type) =>
+        containerRef.current.removeEventListener(type, stopPropagation),
+      );
     }; //cleanup on unmount
   }, [isActiveRef.current, containerRef.current]);
 
   //set local graph to view when deactivating embeddables
   React.useEffect(() => {
-    if(file === view.file) {
+    if (file === view.file) {
       return;
     }
-    if(!isActiveRef.current) {
+    if (!isActiveRef.current) {
       setFileToLocalGraph(view.app, view.file);
     }
   }, [isActiveRef.current]);
+
+  const setKeepOnTop = () => {
+    const keepontop =
+      view.app.workspace.getMostRecentLeaf() === view.leaf && DEVICE.isDesktop;
+    if (keepontop) {
+      if (!view.ownerWindow.electronWindow.isAlwaysOnTop()) {
+        view.ownerWindow.electronWindow.setAlwaysOnTop(true);
+        window.setTimeout(() => {
+          view.ownerWindow.electronWindow.setAlwaysOnTop(false);
+        }, 500);
+      }
+    }
+  };
 
   //--------------------------------------------------------------------------------
   //Mount the workspace leaf or the canvas node depending on subpath
   //--------------------------------------------------------------------------------
   React.useEffect(() => {
-    if(!containerRef?.current) {
+    if (!containerRef?.current) {
       return;
     }
 
-    while(containerRef.current.hasChildNodes()) {
+    while (containerRef.current.hasChildNodes()) {
       containerRef.current.removeChild(containerRef.current.lastChild);
     }
 
-    containerRef.current.parentElement.style.padding = "";
+    setStyle(containerRef.current.parentElement, {
+      padding: "",
+    });
 
-    const doc = view.ownerDocument;
-    const rootSplit:WorkspaceSplit = new (WorkspaceSplit as ConstructableWorkspaceSplit)(view.app.workspace, "vertical");
-    rootSplit.getRoot = () => view.app.workspace[doc === document ? 'rootSplit' : 'floatingSplit'];
-    rootSplit.getContainer = () => getContainerForDocument(doc);
-    rootSplit.containerEl.style.width = '100%';
-    rootSplit.containerEl.style.height = '100%';
-    rootSplit.containerEl.style.borderRadius = "var(--embeddable-radius)";
     leafRef.current = {
-      leaf: view.app.workspace.createLeafInParent(rootSplit, 0),
+      leaf: null,
       node: null,
       editNode: null,
     };
 
-    const setKeepOnTop = () => {
-      const keepontop = (view.app.workspace.activeLeaf === view.leaf) && DEVICE.isDesktop;
-      if (keepontop) {
-        //@ts-ignore
-        if(!view.ownerWindow.electronWindow.isAlwaysOnTop()) {
-          //@ts-ignore
-          view.ownerWindow.electronWindow.setAlwaysOnTop(true);
-          setTimeout(() => {
-            //@ts-ignore
-            view.ownerWindow.electronWindow.setAlwaysOnTop(false);
-          }, 500);
-        }
+    const createNode = (viewType: string) => {
+      if (!requireApiVersion("1.9.10")) {
+        setKeepOnTop();
       }
-    }
+      leafRef.current.node = view.canvasNodeFactory.createFileNote(
+        file,
+        subpath,
+        containerRef.current,
+        element.id,
+      );
+
+      // --- PATCH NATIVE OBSIDIAN CANVAS NODE ---
+      // Obsidian's native canvas event listeners will force the node into edit mode
+      // on certain clicks/double-clicks. This intercepts Obsidian's core method.
+      const node = leafRef.current.node;
+      if (node && typeof node.startEditing === "function") {
+        const originalStartEditing = node.startEditing;
+        node.startEditing = function (...args: unknown[]) {
+          // Read directly from the ref to ensure dynamic lock toggling works
+          if (mdPropsRef.current?.lockedReadingMode) {
+            return;
+          }
+          const result: unknown = originalStartEditing.apply(this, args);
+          return result;
+        };
+      }
+
+      setColors(containerRef.current, element, mdProps, canvasColor, viewType);
+      view.updateEmbeddableLeafRef(element.id, leafRef.current);
+      viewTypeRef.current = "markdown";
+    };
+
+    patchMobileView(view);
+    const mountWorkspaceLeaf = () => {
+      const viewType = predictViewType(view.app, file);
+      // markdown could still be a kanban board or other custom view on top of markdown, those need to be displayed in leaves
+      if (
+        viewType !== "markdown" &&
+        CANVAS_VIEWTYPES.has(viewType) &&
+        view.canvasNodeFactory?.isInitialized()
+      ) {
+        createNode(viewType);
+        if (viewType === "pdf") {
+          // Moved PDF setup logic into a helper for readability
+          setupPdfViewEnhancements(
+            view,
+            leafRef,
+            pdfObserverRef,
+            pdfObserverDisabledRef,
+          );
+        }
+      } else {
+        void (async () => {
+          const { rootSplit, leaf } = createLeaf(view);
+          leafRef.current.leaf = leaf;
+          await leafRef.current.leaf.openFile(file, {
+            active: false,
+            state: { mode: "preview" },
+            ...(subpath ? { eState: { subpath } } : {}),
+          });
+          const viewType = leafRef.current.leaf.view?.getViewType();
+          viewTypeRef.current = viewType;
+          if (viewType === "canvas") {
+            leafRef.current.leaf.view.canvas?.setReadonly(true);
+          }
+          if (
+            viewType === "markdown" &&
+            view.canvasNodeFactory?.isInitialized()
+          ) {
+            createNode("markdown");
+            //I haven't found a better way of deciding if an .md file has its own view (e.g., kanban) or not
+            //This runs only when the file is added, thus should not be a major performance issue
+            await leafRef.current.leaf.setViewState({
+              type: "markdown",
+              state: { file: null },
+            });
+            leafRef.current.leaf?.detach();
+          } else {
+            const workspaceLeaf: HTMLDivElement =
+              rootSplit.containerEl.querySelector("div.workspace-leaf");
+            if (workspaceLeaf) {
+              setStyle(workspaceLeaf, {
+                borderRadius: "var(--embeddable-radius)",
+              });
+            }
+            rootSplit.containerEl.addClass("mod-visible");
+            containerRef.current.appendChild(rootSplit.containerEl);
+            setColors(
+              containerRef.current,
+              element,
+              mdProps,
+              canvasColor,
+              viewType,
+            );
+            view.updateEmbeddableLeafRef(element.id, leafRef.current);
+          }
+        })();
+      }
+    };
+
+    let effectCancelled = false;
 
     //if subpath is defined, create a canvas node else create a workspace leaf
-    if(subpath && view.canvasNodeFactory.isInitialized()) {
-      setKeepOnTop();
-      leafRef.current.node = view.canvasNodeFactory.createFileNote(file, subpath, containerRef.current, element.id);
-      view.updateEmbeddableLeafRef(element.id, leafRef.current);
-    } else {
-      (async () => {
-        await leafRef.current.leaf.openFile(file, {
-          active: false,
-          state: {mode:"preview"},
-          ...subpath ? { eState: { subpath }}:{},
-        });
-        const viewType = leafRef.current.leaf.view?.getViewType();
-        if(viewType === "canvas") {
-          leafRef.current.leaf.view.canvas?.setReadonly(true);
-        }
-        if ((viewType === "markdown") && view.canvasNodeFactory.isInitialized()) {
-          setKeepOnTop();
-          //I haven't found a better way of deciding if an .md file has its own view (e.g., kanban) or not
-          //This runs only when the file is added, thus should not be a major performance issue
-          await leafRef.current.leaf.setViewState({state: {file:null}})
-          leafRef.current.node = view.canvasNodeFactory.createFileNote(file, subpath, containerRef.current, element.id);
-          setColors(containerRef.current, element, mdProps, canvasColor);
-        } else {
-          const workspaceLeaf:HTMLDivElement = rootSplit.containerEl.querySelector("div.workspace-leaf");
-          if(workspaceLeaf) workspaceLeaf.style.borderRadius = "var(--embeddable-radius)";
-          rootSplit.containerEl.addClass("mod-visible");
-          containerRef.current.appendChild(rootSplit.containerEl);
-          setColors(containerRef.current, element, mdProps, canvasColor);
-        }
-        patchMobileView(view);
-        view.updateEmbeddableLeafRef(element.id, leafRef.current);
-      })();
-    }
+    void mountEmbeddableHost({
+      subpath,
+      fileExtension: file.extension,
+      getHost: () => view.canvasNodeFactory,
+      isCancelled: () =>
+        effectCancelled || !leafRef.current || !containerRef.current,
+      createCanvasNode: () => createNode("markdown"),
+      createWorkspaceLeaf: mountWorkspaceLeaf,
+    }).catch((error: unknown) => {
+      errorlog({
+        where: "CustomEmbeddable.mount",
+        fn: "mountEmbeddableHost",
+        error,
+      });
+    });
 
     return () => {
-      if(!leafRef.current) {
+      effectCancelled = true;
+
+      // disconnect observer if any
+      pdfObserverRef.currentCleanup?.();
+      pdfObserverRef.current?.disconnect();
+      pdfObserverRef.current = null;
+
+      // cleanup persistent mobile patch if active
+      try {
+        mobilePatchCleanupRef.current?.();
+      } catch (error: unknown) {
+        errorlog({
+          where: "CustomEmbeddable.onPointerUp",
+          fn: "mobilePatchCleanupRef.current",
+          error: error,
+        });
+      }
+      mobilePatchCleanupRef.current = null;
+
+      view.updateEmbeddableLeafRef(element.id);
+
+      if (!leafRef.current) {
         return;
       }
-      view.canvasNodeFactory.removeNode(leafRef.current.node);
+      view.canvasNodeFactory?.removeNode(leafRef.current.node, element.id);
       leafRef.current.leaf?.detach();
       leafRef.current = null;
     }; //cleanup on unmount
-  }, [linkText, subpath, containerRef]);
-  
+  }, [linkText, subpath, containerRef, element.id, file.path]);
+
   //--------------------------------------------------------------------------------
   //Set colors of the canvas node
   //--------------------------------------------------------------------------------
-  function setColors (canvasNode: HTMLDivElement, element: NonDeletedExcalidrawElement, mdProps: EmbeddableMDCustomProps, canvasColor: string) {
-    if(!mdProps) return;
-    if (!leafRef.current?.hasOwnProperty("node")) return;
+  function roundEmbeddableSize(value: number): number {
+    return Math.round(value * 1000) / 1000;
+  }
 
-    const canvasNodeContainer = containerRef.current?.firstElementChild as HTMLElement;
-    
-    if(mdProps.useObsidianDefaults) {
-      canvasNode?.style.removeProperty("--canvas-background");
-      canvasNodeContainer?.style.removeProperty("background-color");
-      canvasNode?.style.removeProperty("--canvas-border");
-      canvasNodeContainer?.style.removeProperty("border-color");
+  function setEmbeddableSizeVars(
+    canvasNode: HTMLDivElement,
+    element: ExcalidrawEmbeddableElement,
+    sceneZoom: number,
+  ) {
+    const scaleX = Math.abs(element.scale?.[0] ?? 1);
+    const scaleY = Math.abs(element.scale?.[1] ?? 1);
+    const width = roundEmbeddableSize(element.width / scaleX);
+    const height = roundEmbeddableSize(element.height / scaleY);
+
+    if (canvasNode) {
+      setStyle(canvasNode, {
+        "--embeddable-width": `${width}px`,
+        "--embeddable-height": `${height}px`,
+        "--embeddable-scaleX": `${roundEmbeddableSize(scaleX)}`,
+        "--embeddable-scaleY": `${roundEmbeddableSize(scaleY)}`,
+        "--scene-zoom": `${roundEmbeddableSize(sceneZoom ?? 1)}`,
+      });
+    }
+  }
+
+  function setColors(
+    canvasNode: HTMLDivElement,
+    element: ExcalidrawEmbeddableElement,
+    mdProps: EmbeddableMDCustomProps,
+    canvasColor: string,
+    viewType: string,
+  ) {
+    setEmbeddableSizeVars(canvasNode, element, sceneZoom);
+    if (!mdProps) {
+      return;
+    }
+    if (!Object.hasOwn(leafRef.current ?? {}, "node")) {
+      return;
+    }
+
+    const canvasNodeContainer = containerRef.current
+      ?.firstElementChild as HTMLElement;
+
+    if (mdProps.useObsidianDefaults) {
+      if (canvasNode) {
+        removeStyle(canvasNode, ["--canvas-background", "--canvas-border"]);
+      }
+      if (canvasNodeContainer) {
+        removeStyle(canvasNodeContainer, ["background-color", "border-color"]);
+      }
       return;
     }
 
     const ea = view.plugin.ea;
-    if(mdProps.backgroundMatchElement) {
-      const opacity = (mdProps?.backgroundOpacity ?? 50)/100;
-      const color = element?.backgroundColor 
-        ? (element.backgroundColor.toLowerCase() === "transparent"
+    if (mdProps.backgroundMatchElement) {
+      const opacity = (mdProps?.backgroundOpacity ?? 50) / 100;
+      const color = element?.backgroundColor
+        ? element.backgroundColor.toLowerCase() === "transparent"
           ? "transparent"
-          : ea.getCM(element.backgroundColor).alphaTo(opacity).stringHEX({alpha: true}))
+          : ea
+              .getCM(element.backgroundColor)
+              .alphaTo(opacity)
+              .stringHEX({ alpha: true })
         : "transparent";
-      
-      color === "transparent" ? canvasNode?.addClass("transparent") : canvasNode?.removeClass("transparent");        
-      canvasNode?.style.setProperty("--canvas-background", color);
-      canvasNode?.style.setProperty("--background-primary", color);
-      canvasNodeContainer?.style.setProperty("background-color", color);
-    } else if (!(mdProps.backgroundMatchElement ?? true )) {
-      const opacity = (mdProps.backgroundOpacity??100)/100;
+
+      if (color === "transparent") {
+        canvasNode?.addClass("transparent");
+      } else {
+        canvasNode?.removeClass("transparent");
+      }
+
+      if (canvasNode) {
+        setStyle(canvasNode, {
+          "--canvas-background": color,
+          "--background-primary": color,
+        });
+      }
+      if (canvasNodeContainer) {
+        setStyle(canvasNodeContainer, {
+          backgroundColor: color,
+        });
+      }
+    } else if (!(mdProps.backgroundMatchElement ?? true)) {
+      const opacity = (mdProps.backgroundOpacity ?? 100) / 100;
       const color = mdProps.backgroundMatchCanvas
-        ? (canvasColor.toLowerCase() === "transparent"
+        ? canvasColor.toLowerCase() === "transparent"
           ? "transparent"
-          : ea.getCM(canvasColor).alphaTo(opacity).stringHEX({alpha: true}))
-        : ea.getCM(mdProps.backgroundColor).alphaTo((mdProps.backgroundOpacity??100)/100).stringHEX({alpha: true});
-      
-      color === "transparent" ? canvasNode?.addClass("transparent") : canvasNode?.removeClass("transparent");
-      canvasNode?.style.setProperty("--canvas-background", color);
-      canvasNode?.style.setProperty("--background-primary", color);
-      canvasNodeContainer?.style.setProperty("background-color", color);
+          : ea.getCM(canvasColor).alphaTo(opacity).stringHEX({ alpha: true })
+        : ea
+            .getCM(mdProps.backgroundColor)
+            .alphaTo((mdProps.backgroundOpacity ?? 100) / 100)
+            .stringHEX({ alpha: true });
+
+      if (color === "transparent") {
+        canvasNode?.addClass("transparent");
+      } else {
+        canvasNode?.removeClass("transparent");
+      }
+
+      if (canvasNode) {
+        setStyle(canvasNode, {
+          "--canvas-background": color,
+          "--background-primary": color,
+        });
+      }
+      if (canvasNodeContainer) {
+        setStyle(canvasNodeContainer, {
+          backgroundColor: color,
+        });
+      }
+    }
+    switch (viewType) {
+      case "bases":
+        if (canvasNode) {
+          setStyle(canvasNode, {
+            "--bases-cards-container-background": "var(--background-primary)",
+            "--bases-embed-border-color": "var(--background-modifier-border)",
+            "--bases-table-header-color": "var(--text-muted)",
+            "--bases-table-header-background": "var(--background-primary)",
+            "--bases-table-header-background-hover":
+              "var(--background-modifier-hover)",
+            "--bases-table-header-sort-mask":
+              "linear-gradient(to left, transparent var(--size-4-6), black var(--size-4-6))",
+            "--bases-table-border-color": "var(--table-border-color)",
+            "--bases-table-row-background-hover":
+              "var(--table-row-background-hover)",
+            "--bases-table-cell-shadow-active":
+              "0 0 0 2px var(--interactive-accent)",
+            "--bases-table-cell-background-active": "var(--background-primary)",
+            "--bases-table-cell-background-disabled":
+              "var(--background-primary-alt)",
+            "--bases-cards-background": "var(--background-primary)",
+            "--bases-cards-cover-background": "var(--background-primary-alt)",
+            "--bases-cards-shadow":
+              "0 0 0 1px var(--background-modifier-border)",
+            "--bases-cards-shadow-hover":
+              "0 0 0 1px var(--background-modifier-border-hover)",
+          });
+        }
+        break;
+      case "pdf":
+        if (canvasNode) {
+          setStyle(canvasNode, {
+            "--pdf-sidebar-background": "var(--background-primary)",
+            "--pdf-background": "var(--background-primary)",
+          });
+        }
+        break;
     }
 
-    if(mdProps.borderMatchElement) {
-      const opacity = (mdProps?.borderOpacity ?? 50)/100;
+    if (mdProps.borderMatchElement) {
+      const opacity = (mdProps?.borderOpacity ?? 50) / 100;
       const color = element?.strokeColor
-        ? (element.strokeColor.toLowerCase() === "transparent"
+        ? element.strokeColor.toLowerCase() === "transparent"
           ? "transparent"
-          : ea.getCM(element.strokeColor).alphaTo(opacity).stringHEX({alpha: true}))
+          : ea
+              .getCM(element.strokeColor)
+              .alphaTo(opacity)
+              .stringHEX({ alpha: true })
         : "transparent";
-      canvasNode?.style.setProperty("--canvas-border", color);
-      canvasNode?.style.setProperty("--canvas-color", color);
-      //canvasNodeContainer?.style.setProperty("border-color", color);
-    } else if(!(mdProps?.borderMatchElement ?? true)) {
-      const color = ea.getCM(mdProps.borderColor).alphaTo((mdProps.borderOpacity??100)/100).stringHEX({alpha: true});
-      canvasNode?.style.setProperty("--canvas-border", color);
-      canvasNode?.style.setProperty("--canvas-color", color);
-      //canvasNodeContainer?.style.setProperty("border-color", color);
+      if (canvasNode) {
+        setStyle(canvasNode, {
+          "--canvas-border": color,
+          "--canvas-color": color,
+          //"border-color": color,
+        });
+      }
+    } else if (!(mdProps?.borderMatchElement ?? true)) {
+      const color = ea
+        .getCM(mdProps.borderColor)
+        .alphaTo((mdProps.borderOpacity ?? 100) / 100)
+        .stringHEX({ alpha: true });
+      if (canvasNode) {
+        setStyle(canvasNode, {
+          "--canvas-border": color,
+          "--canvas-color": color,
+          //"border-color": color,
+        });
+      }
     }
   }
 
@@ -317,13 +1166,14 @@ function RenderObsidianView(
   //Set colors of the canvas node
   //--------------------------------------------------------------------------------
   React.useEffect(() => {
-    if(!containerRef.current) {
+    if (!containerRef.current) {
       return;
     }
-    const element = elementRef.current;
     const canvasNode = containerRef.current;
-    if(!canvasNode.hasClass("canvas-node")) return;
-    setColors(canvasNode, element, mdProps, canvasColor);
+    if (!canvasNode.hasClass("canvas-node")) {
+      return;
+    }
+    setColors(canvasNode, element, mdProps, canvasColor, viewTypeRef.current);
   }, [
     mdProps?.useObsidianDefaults,
     mdProps?.backgroundMatchCanvas,
@@ -333,19 +1183,39 @@ function RenderObsidianView(
     mdProps?.borderMatchElement,
     mdProps?.borderColor,
     mdProps?.borderOpacity,
-    elementRef.current,
+    element.backgroundColor,
+    element.strokeColor,
+    element.width,
+    element.height,
+    element.scale?.[0],
+    element.scale?.[1],
+    sceneZoom,
     containerRef.current,
     canvasColor,
-  ])
+    viewTypeRef.current,
+  ]);
+
+  React.useEffect(() => {
+    if (!containerRef.current) {
+      return;
+    }
+    setEmbeddableSizeVars(containerRef.current, element, sceneZoom);
+  }, [
+    element.width,
+    element.height,
+    element.scale?.[0],
+    element.scale?.[1],
+    sceneZoom,
+  ]);
 
   //--------------------------------------------------------------------------------
   //Switch to preview mode when the iframe is not active
   //--------------------------------------------------------------------------------
   React.useEffect(() => {
-    if(isEditingRef.current) {
-      if(leafRef.current?.node) {
+    if (isEditingRef.current) {
+      if (leafRef.current?.node) {
         containerRef.current?.addClasses(["is-editing", "is-focused"]);
-        view.canvasNodeFactory.stopEditing(leafRef.current.node);
+        view.canvasNodeFactory.stopEditing(leafRef.current.node, element.id);
       }
       isEditingRef.current = false;
     }
@@ -354,131 +1224,297 @@ function RenderObsidianView(
   //--------------------------------------------------------------------------------
   //Switch to edit mode when markdown view is clicked
   //--------------------------------------------------------------------------------
-  const handleClick = React.useCallback((event?: React.PointerEvent<HTMLElement>) => {
-    if(isActiveRef.current) {
-      event?.stopPropagation();
-    }
+  const handleClick = React.useCallback(
+    (event?: Event) => {
+      if (view.file !== initialViewFileRef.current) {
+        return;
+      }
 
-    if (isActiveRef.current && !isEditingRef.current && leafRef.current?.leaf) {
-      if(leafRef.current.leaf.view?.getViewType() === "markdown") {
-        const api:ExcalidrawImperativeAPI = view.excalidrawAPI;
-        const el = api.getSceneElements().filter(el=>el.id === element.id)[0];
+      if (isActiveRef.current) {
+        event?.stopPropagation();
+      }
 
-        if(!el || el.angle !== 0) {
-          new Notice("Sorry, cannot edit rotated markdown documents");
+      const currentMdProps = mdPropsRef.current;
+      const currentFile = fileRef.current;
+
+      if (currentMdProps?.lockedReadingMode) {
+        // Special case: if the card is a back-of-the-note card, ticking a checkbox in
+        // reading mode triggers a change to the open file which would result in a view update.
+        if (!isActiveRef.current && isPreviewRef.current) {
+          view.clearEmbeddableNodeIsEditing(element.id);
+          isPreviewRef.current = false;
+        }
+        if (isActiveRef.current && currentFile?.path === view.file.path) {
+          view.setPreventReload();
+          void view.setEmbeddableNodeIsEditing(element.id);
+          isPreviewRef.current = true;
+        }
+        return;
+      }
+
+      if (!isActiveRef.current || isEditingRef.current || !leafRef.current) {
+        return;
+      }
+
+      /*if(isActiveRef.current && leafRef.current?.leaf) {
+      setKeepOnTop();
+      view.app.workspace.setActiveLeaf(leafRef.current.leaf, { focus: true });
+    }*/
+
+      if (leafRef.current.node) {
+        //Handle canvas node
+        const newTheme = getTheme(view, themeRef.current);
+        containerRef.current?.addClasses(["is-editing", "is-focused"]);
+        const isEditingSelf = fileRef.current?.path === view.file.path;
+        void view.canvasNodeFactory.startEditing(
+          leafRef.current.node,
+          newTheme,
+          isEditingSelf,
+          element.id,
+        );
+        return;
+      }
+
+      if (leafRef.current.leaf && viewTypeRef.current === "markdown") {
+        const api: ExcalidrawImperativeAPI = view.excalidrawAPI;
+        const el = api
+          .getSceneElements()
+          .filter(
+            (el: ExcalidrawElement) => el.id === element.id,
+          )[0] as ExcalidrawEmbeddableElement;
+        if (!el || el.angle !== 0) {
+          new Notice("Sorry, cannot edit rotated Markdown documents");
           return;
         }
-        //@ts-ignore
         const modes = leafRef.current.leaf.view.modes;
         if (!modes) {
           return;
         }
-        leafRef.current.leaf.view.setMode(modes['source']);
-        isEditingRef.current = true;
         patchMobileView(view);
-      } else if (leafRef.current?.node) {
-        //Handle canvas node
-        const newTheme = getTheme(view, themeRef.current);
-        containerRef.current?.addClasses(["is-editing", "is-focused"]);
-        view.canvasNodeFactory.startEditing(leafRef.current.node, newTheme);
+        leafRef.current.leaf.view.setMode(modes.source);
+        isEditingRef.current = true;
       }
-    }
-  }, [leafRef.current?.leaf, element.id, view, themeRef.current]);
+    },
+    [
+      leafRef.current?.leaf,
+      element.id,
+      view,
+      themeRef.current,
+      isActiveRef.current,
+      isEditingRef.current,
+      viewTypeRef.current,
+      fileRef.current,
+    ],
+  );
 
-  if(leafRef.current)  leafRef.current.editNode = handleClick;
+  const startEditing = React.useCallback(() => {
+    if (view.file !== initialViewFileRef.current) {
+      return;
+    }
+    if (isActiveRef.current && isEditingRef.current) {
+      return;
+    }
+    isActiveRef.current = true;
+    handleClick();
+  }, [isActiveRef.current, isEditingRef.current, handleClick, view]);
+
+  if (leafRef.current) {
+    leafRef.current.editNode = startEditing;
+  }
   // Event listener for key press
   React.useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
-      if (event.key === "Enter") {
-        handleClick(event); // Call handleClick function when Enter key is pressed
+      // Deactivate active embeddable on Escape
+      if (event.key === "Escape" && isActiveRef.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        view.updateScene({ appState: { activeEmbeddable: null } });
+        return;
+      }
+      // Existing Enter behavior
+
+      if (
+        event.key === "Enter" &&
+        !isEditingRef.current &&
+        (selectedElementId === element.id ||
+          activeEmbeddable?.element?.id === element.id)
+      ) {
+        startEditing(); // Call handleClick function when Enter key is pressed
       }
     };
 
-    document.addEventListener("keydown", handleKeyPress); // Add event listener for key press
+    // Use capture so this runs even if container stops bubbling
+    view.ownerDocument.addEventListener("keydown", handleKeyPress, true);
 
     return () => {
-      document.removeEventListener("keydown", handleKeyPress); // Remove event listener when component unmounts
+      view.ownerDocument.removeEventListener("keydown", handleKeyPress, true);
     };
-  }, [handleClick]);
+  }, [
+    handleClick,
+    isActiveRef.current,
+    view,
+    activeEmbeddable,
+    element,
+    selectedElementId,
+  ]);
 
   //--------------------------------------------------------------------------------
-  // Set isActiveRef and switch to preview mode when the iframe is not active
+  // Set isActiveRef and switch to preview mode when the embeddable is not active
   //--------------------------------------------------------------------------------
   React.useEffect(() => {
-    if(!containerRef?.current || !leafRef?.current) {
+    if (view.file !== initialViewFileRef.current) {
+      return;
+    }
+
+    if (!containerRef?.current || !leafRef?.current) {
       return;
     }
 
     const previousIsActive = isActiveRef.current;
-    isActiveRef.current = (activeEmbeddable?.element.id === element.id) && (activeEmbeddable?.state === "active");
-    
-    const node = leafRef.current?.node as ObsidianCanvasNode;
-    if (previousIsActive === isActiveRef.current) {
+    isActiveRef.current =
+      activeEmbeddable?.element.id === element.id &&
+      activeEmbeddable?.state === "active";
+
+    const lockChanged = prevLockRef.current !== mdProps?.lockedReadingMode;
+    prevLockRef.current = !!mdProps?.lockedReadingMode;
+
+    if (previousIsActive === isActiveRef.current && !lockChanged) {
       return;
     }
 
-    if(file !== view.file) {
+    if (file !== view.file) {
       setFileToLocalGraph(view.app, file);
     }
 
-    if(leafRef.current.leaf?.view?.getViewType() === "markdown") {
-      //Handle markdown leaf
-      //@ts-ignore
-      const modes = leafRef.current.leaf.view.modes;
-      if(!modes) {
-        return;
-      }
-    
-      if(!isActiveRef.current) {
-        //@ts-ignore
-        leafRef.current.leaf.view.setMode(modes["preview"]);
-        isEditingRef.current = false;
-        return;
-      }  
-    } else if (node) {
+    const node = leafRef.current?.node;
+    if (node) {
       //Handle canvas node
-      if(isActiveRef.current && view.plugin.settings.markdownNodeOneClickEditing && !containerRef.current?.hasClass("is-editing")) { //!node.isEditing
-        const newTheme = getTheme(view, themeRef.current);
-        containerRef.current?.addClasses(["is-editing", "is-focused"]);
-        view.canvasNodeFactory.startEditing(node, newTheme);
+      if (isActiveRef.current) {
+        if (
+          mdPropsRef.current?.lockedReadingMode ||
+          (!view.plugin.settings.markdownNodeOneClickEditing &&
+            !containerRef.current?.hasClass("is-editing"))
+        ) {
+          if (fileRef.current?.path === view.file.path) {
+            view.setPreventReload();
+            void view.setEmbeddableNodeIsEditing(element.id);
+          }
+        } else if (
+          view.plugin.settings.markdownNodeOneClickEditing &&
+          !containerRef.current?.hasClass("is-editing")
+        ) {
+          //!node.isEditing
+          const newTheme = getTheme(view, themeRef.current);
+          containerRef.current?.addClasses(["is-editing", "is-focused"]);
+          const isEditingSelf = fileRef.current?.path === view.file.path;
+          void view.canvasNodeFactory.startEditing(
+            node,
+            newTheme,
+            isEditingSelf,
+            element.id,
+          );
+        }
       } else {
+        if (
+          fileRef.current?.path === view.file.path &&
+          !containerRef.current?.hasClass("is-editing")
+        ) {
+          view.clearEmbeddableNodeIsEditing(element.id); //else it will be cleared in stopEditing right below
+        }
         containerRef.current?.removeClasses(["is-editing", "is-focused"]);
-        view.canvasNodeFactory.stopEditing(node);
+        view.canvasNodeFactory.stopEditing(node, element.id);
+      }
+      return;
+    }
+
+    if (leafRef.current.leaf) {
+      // Manage persistent mobile patch lifecycle for LEAF on phones
+      if (DEVICE.isPhone) {
+        if (isActiveRef.current) {
+          // start persistent observer if not running
+          if (!mobilePatchCleanupRef.current) {
+            const cleanup = patchMobileView(view, {
+              keepAlive: true,
+              isActive: () => isActiveRef.current,
+            });
+            mobilePatchCleanupRef.current =
+              typeof cleanup === "function" ? cleanup : null;
+          }
+        } else {
+          // stop persistent observer when deactivated
+          try {
+            mobilePatchCleanupRef.current?.();
+          } catch (error: unknown) {
+            errorlog({
+              where: "CustomEmbeddable.onPointerUp",
+              fn: "mobilePatchCleanupRef.current",
+              error: error,
+            });
+          }
+          mobilePatchCleanupRef.current = null;
+        }
+      }
+
+      //I think this no longer happens since markdown is always a canvas node if canvasNodeFactory is initialized
+      if (viewTypeRef.current === "markdown") {
+        //Handle markdown leaf
+        const modes = leafRef.current.leaf?.view.modes;
+        if (!modes) {
+          return;
+        }
+
+        if (!isActiveRef.current) {
+          leafRef.current.leaf.view.setMode(modes.preview);
+          isEditingRef.current = false;
+        }
       }
     }
   }, [
     containerRef,
     leafRef,
+    activeEmbeddable?.state,
     isActiveRef,
     activeEmbeddable?.element,
-    activeEmbeddable?.state,
     element,
     view,
     isEditingRef,
     view.canvasNodeFactory,
-    themeRef.current
+    themeRef.current,
+    mdProps?.lockedReadingMode,
+    file.path,
   ]);
 
   return null;
-};
+}
 
-
-export const CustomEmbeddable: React.FC<{element: NonDeletedExcalidrawElement; view: ExcalidrawView; appState: UIAppState; linkText: string}> = ({ element, view, appState, linkText }) => {
+export const CustomEmbeddable: React.FC<{
+  element: ExcalidrawEmbeddableElement;
+  view: ExcalidrawView;
+  appState: UIAppState;
+  linkText: string;
+}> = ({ element, view, appState, linkText }) => {
   const React = view.packages.react;
   const containerRef: React.RefObject<HTMLDivElement> = React.useRef(null);
   const theme = getTheme(view, appState.theme);
-  const mdProps: EmbeddableMDCustomProps = element.customData?.mdProps || null;
+  const mdProps: EmbeddableMDCustomProps =
+    (element.customData?.mdProps as EmbeddableMDCustomProps) || null;
+  const selectedElementIds = Object.keys(appState.selectedElementIds);
   return (
     <div
+      id={`embed-${element.id}`}
       ref={containerRef}
-      style = {{
+      style={{
         width: `100%`,
         height: `100%`,
         borderRadius: "var(--embeddable-radius)",
         color: `var(--text-normal)`,
+        touchAction: "auto",
       }}
       className={`${theme} canvas-node ${
-        mdProps?.filenameVisible && !mdProps.useObsidianDefaults ? "" : "excalidraw-mdEmbed-hideFilename"}`}
+        mdProps?.filenameVisible && !mdProps.useObsidianDefaults
+          ? ""
+          : "excalidraw-mdEmbed-hideFilename"
+      }`}
     >
       <RenderObsidianView
         mdProps={mdProps}
@@ -486,10 +1522,19 @@ export const CustomEmbeddable: React.FC<{element: NonDeletedExcalidrawElement; v
         linkText={linkText}
         view={view}
         containerRef={containerRef}
-        activeEmbeddable={appState.activeEmbeddable}
+        activeEmbeddable={
+          appState.activeEmbeddable as unknown as {
+            element: ExcalidrawEmbeddableElement;
+            state: string;
+          }
+        }
         theme={appState.theme}
         canvasColor={appState.viewBackgroundColor}
+        selectedElementId={
+          selectedElementIds.length === 1 ? selectedElementIds[0] : null
+        }
+        sceneZoom={appState.zoom.value}
       />
     </div>
-  )
-}
+  );
+};

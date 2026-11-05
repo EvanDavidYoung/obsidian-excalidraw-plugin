@@ -1,22 +1,54 @@
-
-import { DEBUGGING, debug } from "src/utils/debugHelper";
-import ExcalidrawView from "../ExcalidrawView";
+import type ExcalidrawView from "../ExcalidrawView";
 import { App, Notice, TFile } from "obsidian";
-import { AppState, ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { DEVICE, IMAGE_TYPES, REG_LINKINDEX_INVALIDCHARS, viewportCoordsToSceneCoords } from "src/constants/constants";
-import { internalDragModifierType, isWinCTRLorMacCMD, localFileDragModifierType, modifierKeyTooltipMessages, webbrowserDragModifierType } from "src/utils/modifierkeyHelper";
-import { errorlog, hyperlinkIsImage, hyperlinkIsYouTubeLink } from "src/utils/utils";
+import {
+  AppState,
+  ExcalidrawImperativeAPI,
+} from "@zsviczian/excalidraw/types/excalidraw/types";
+import {
+  ANIMATED_IMAGE_TYPES,
+  DEVICE,
+  IMAGE_TYPES,
+  REG_LINKINDEX_INVALIDCHARS,
+  viewportCoordsToSceneCoords,
+} from "src/constants/constants";
+import {
+  internalDragModifierType,
+  isWinCTRLorMacCMD,
+  localFileDragModifierType,
+  modifierKeyTooltipMessages,
+  webbrowserDragModifierType,
+  type InternalDragAction,
+} from "src/utils/modifierkeyHelper";
+import {
+  errorlog,
+  hyperlinkIsImage,
+  hyperlinkIsYouTubeLink,
+} from "src/utils/utils";
 import { InsertPDFModal } from "src/shared/Dialogs/InsertPDFModal";
 import { ExcalidrawAutomate } from "src/shared/ExcalidrawAutomate";
 import { getEA } from "src/core";
-import { insertEmbeddableToView, insertImageToView } from "src/utils/excalidrawViewUtils";
+import {
+  insertEmbeddableToView,
+  insertImageToView,
+} from "src/utils/excalidrawViewUtils";
 import { t } from "src/lang/helpers";
 import ExcalidrawPlugin from "src/core/main";
-import { getInternalLinkOrFileURLLink, getNewUniqueFilepath, getURLImageExtension, splitFolderAndFilename } from "src/utils/fileUtils";
-import { getAttachmentsFolderAndFilePath } from "src/utils/obsidianUtils";
+import {
+  getInternalLinkOrFileURLLink,
+  getURLImageExtension,
+  importFileToVault,
+} from "src/utils/fileUtils";
 import { ScriptEngine } from "src/shared/Scripts";
-import { UniversalInsertFileModal } from "src/shared/Dialogs/UniversalInsertFileModal";
+import {
+  UniversalInsertFileModal,
+  type UniversalInsertFileAction,
+} from "src/shared/Dialogs/UniversalInsertFileModal";
 import { Position } from "src/types/excalidrawViewTypes";
+import { setStyle } from "src/utils/styleUtils";
+import { ObsidianDraggable } from "src/types/types";
+import type React from "react";
+import { insertMarkdownImage } from "src/shared/MarkdownImage";
+import { predictViewType } from "src/utils/customEmbeddableUtils";
 
 /*
 static getDropAction(event: DragEvent): string {
@@ -43,14 +75,14 @@ export class DropManager {
   private view: ExcalidrawView;
   private app: App;
   private draginfoDiv: HTMLDivElement;
-  
+
   constructor(view: ExcalidrawView) {
     this.view = view;
     this.app = this.view.app;
   }
 
   public destroy() {
-    if(this.draginfoDiv) {
+    if (this.draginfoDiv) {
       this.ownerDocument.body.removeChild(this.draginfoDiv);
       delete this.draginfoDiv;
     }
@@ -68,7 +100,7 @@ export class DropManager {
     this.view.currentPosition = pos;
   }
 
-  get excalidrawAPI():ExcalidrawImperativeAPI {
+  get excalidrawAPI(): ExcalidrawImperativeAPI {
     return this.view.excalidrawAPI;
   }
 
@@ -80,9 +112,109 @@ export class DropManager {
     return this.view.file;
   }
 
-  public onDrop (event: React.DragEvent<HTMLDivElement>): boolean {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.onDrop, "ExcalidrawView.onDrop", event);
-    if(this.draginfoDiv) {
+  private openDroppedMarkdownFile(
+    file: TFile,
+    position: Position,
+    action: UniversalInsertFileAction,
+  ): void {
+    new UniversalInsertFileModal(this.plugin, this.view).open(
+      file,
+      position,
+      action,
+    );
+  }
+
+  private async importDroppedFile(
+    droppedFile: File,
+    pos: Position,
+    isSingleFile: boolean,
+    extension = getURLImageExtension(droppedFile.name),
+  ): Promise<void> {
+    const droppedFilename = droppedFile.name;
+    const fileToImport =
+      await droppedFile.arrayBuffer();
+    const insertImportedFile = async (file: TFile) => {
+      const isSingleAnimatedRasterImage =
+        isSingleFile &&
+        ANIMATED_IMAGE_TYPES.contains(
+          file.extension.toLowerCase(),
+        ) &&
+        file.extension.toLowerCase() !== "svg";
+      if (isSingleAnimatedRasterImage) {
+        const modal = new UniversalInsertFileModal(
+          this.plugin,
+          this.view,
+        );
+        modal.open(file, pos);
+        return;
+      }
+      const ea = getEA(this.view);
+      await insertImageToView(ea, pos, file);
+      ea.destroy();
+    };
+    const maybeFile = this.app.metadataCache.getFirstLinkpathDest(
+      droppedFilename,
+      this.file.path,
+    );
+    let file = maybeFile instanceof TFile ? maybeFile : null;
+    if (file) {
+      const action = await ScriptEngine.suggester(
+        this.app,
+        [
+          "Use the file already in the Vault instead of importing",
+          "Overwrite existing file in the Vault",
+          "Import the file with a new name",
+        ],
+        ["Use", "Overwrite", "Import"],
+        `A file with the same name/path already exists in the Vault\n${
+          file.path
+        }`,
+      );
+      if (action === "Overwrite") {
+        await this.app.vault.modifyBinary(file, fileToImport);
+      } else if (action === "Import") {
+        file = null;
+      }
+    }
+    file ??= await importFileToVault(
+      this.app,
+      droppedFilename,
+      fileToImport,
+      this.view.file,
+      this.view,
+    );
+    if (IMAGE_TYPES.contains(extension)) {
+      await insertImportedFile(file);
+      return;
+    }
+    const modal = new UniversalInsertFileModal(
+      this.plugin,
+      this.view,
+    );
+    modal.open(file, pos);
+  }
+
+  private getInternalDropActions(draggable: App["dragManager"]["draggable"]): InternalDragAction[] {
+    const droppedFiles = draggable?.type === "files"
+      ? draggable.files ?? []
+      : draggable?.file ? [draggable.file] : undefined;
+    if (!droppedFiles) return ["link", "image", "image-fullsize", "embeddable"];
+    const files = droppedFiles.filter(file => file instanceof TFile);
+
+    const actions: InternalDragAction[] = ["link"];
+    const canInsertImage = files.some(file =>
+      IMAGE_TYPES.contains(file.extension) ||
+      ["md", "pdf"].includes(file.extension.toLowerCase()),
+    );
+    if (canInsertImage) actions.push("image", "image-fullsize");
+    if (canInsertImage || files.some(file => predictViewType(this.app, file) !== "empty")) {
+      actions.push("embeddable");
+    }
+    return actions;
+  }
+
+  public onDrop(event: React.DragEvent<HTMLDivElement>): boolean {
+    if (this.draginfoDiv) {
       this.ownerDocument.body.removeChild(this.draginfoDiv);
       delete this.draginfoDiv;
     }
@@ -95,8 +227,11 @@ export class DropManager {
       { clientX: event.clientX, clientY: event.clientY },
       st,
     );
-    const draggable = (this.app as any).dragManager.draggable;
-    const internalDragAction = internalDragModifierType(event);
+    const draggable = this.app.dragManager
+      .draggable as unknown as ObsidianDraggable;
+    const requestedInternalAction = internalDragModifierType(event);
+    const internalDragAction = this.getInternalDropActions(draggable).includes(requestedInternalAction)
+      ? requestedInternalAction : "link";
     const externalDragAction = webbrowserDragModifierType(event);
     const localFileDragAction = localFileDragModifierType(event);
 
@@ -106,6 +241,7 @@ export class DropManager {
       files: TFile[],
       text: string,
     ): boolean => {
+      this.app.workspace.setActiveLeaf(this.view.leaf); //ensure the view is active, so ModalContainerObserver is active
       if (this.view.getHookServer().onDropHook) {
         try {
           return this.view.getHookServer().onDropHook({
@@ -121,8 +257,8 @@ export class DropManager {
             view: this.view, //the excalidraw view receiving the drop
             pointerPosition: this.currentPosition, //the pointer position on canvas at the time of drop
           });
-        } catch (e) {
-          new Notice("on drop hook error. See console log for details");
+        } catch (e: unknown) {
+          new Notice("On drop hook error. See console log for details");
           errorlog({ where: "ExcalidrawView.onDrop", error: e });
           return false;
         }
@@ -135,49 +271,58 @@ export class DropManager {
     // Obsidian internal drag event
     //---------------------------------------------------------------------------------
     switch (draggable?.type) {
+      case "link":
       case "file":
         if (!onDropHook("file", [draggable.file], null)) {
-          const file:TFile = draggable.file;
+          const file: TFile = draggable.file;
           //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/422
           if (file.path.match(REG_LINKINDEX_INVALIDCHARS)) {
             new Notice(t("FILENAME_INVALID_CHARS"), 4000);
             return false;
           }
           if (
-            ["image", "image-fullsize"].contains(internalDragAction) && 
-            (IMAGE_TYPES.contains(file.extension) ||
-              file.extension === "md"  ||
-              file.extension.toLowerCase() === "pdf" )
+            file.extension.toLowerCase() === "md" &&
+            (internalDragAction === "image" ||
+              internalDragAction === "embeddable")
           ) {
-            if(file.extension.toLowerCase() === "pdf") {
+            this.openDroppedMarkdownFile(
+              file,
+              { ...this.currentPosition },
+              internalDragAction,
+            );
+            return false;
+          }
+          if (
+            ["image", "image-fullsize"].contains(internalDragAction) &&
+            (IMAGE_TYPES.contains(file.extension) ||
+              file.extension === "md" ||
+              file.extension.toLowerCase() === "pdf")
+          ) {
+            if (file.extension.toLowerCase() === "pdf") {
               const insertPDFModal = new InsertPDFModal(this.plugin, this.view);
               insertPDFModal.open(file);
             } else {
-              (async () => {
+              void (async () => {
                 const ea: ExcalidrawAutomate = getEA(this.view);
                 ea.selectElementsInView([
                   await insertImageToView(
                     ea,
                     this.currentPosition,
                     file,
-                    !(internalDragAction==="image-fullsize")
-                  )
+                    !(internalDragAction === "image-fullsize"),
+                  ),
                 ]);
                 ea.destroy();
               })();
             }
             return false;
           }
-          
+
           if (internalDragAction === "embeddable") {
-            (async () => {
+            void (async () => {
               const ea: ExcalidrawAutomate = getEA(this.view);
               ea.selectElementsInView([
-                await insertEmbeddableToView(
-                  ea,
-                  this.currentPosition,
-                  file,
-                )
+                await insertEmbeddableToView(ea, this.currentPosition, file),
               ]);
               ea.destroy();
             })();
@@ -185,7 +330,7 @@ export class DropManager {
           }
 
           //internalDragAction === "link"
-          this.view.addText(
+          void this.view.addText(
             `[[${this.app.metadataCache.fileToLinktext(
               draggable.file,
               this.file.path,
@@ -196,26 +341,60 @@ export class DropManager {
         return false;
       case "files":
         if (!onDropHook("file", draggable.files, null)) {
-          (async () => {
+          if (
+            draggable.files.length === 1 &&
+            draggable.files[0].extension.toLowerCase() === "md" &&
+            (internalDragAction === "image" ||
+              internalDragAction === "embeddable")
+          ) {
+            this.openDroppedMarkdownFile(
+              draggable.files[0],
+              { ...this.currentPosition },
+              internalDragAction,
+            );
+            return false;
+          }
+          void (async () => {
             if (["image", "image-fullsize"].contains(internalDragAction)) {
-              const ea:ExcalidrawAutomate = getEA(this.view);
+              const ea: ExcalidrawAutomate = getEA(this.view);
               ea.canvas.theme = api.getAppState().theme;
-              let counter:number = 0;
-              const ids:string[] = [];
+              let counter: number = 0;
+              const ids: string[] = [];
               for (const f of draggable.files) {
-                if ((IMAGE_TYPES.contains(f.extension) || f.extension === "md")) {
-                  ids.push(await ea.addImage(
-                    this.currentPosition.x + counter*50,
-                    this.currentPosition.y + counter*50,
-                    f,
-                    !(internalDragAction==="image-fullsize"),
-                  ));
+                if (
+                  internalDragAction === "image" &&
+                  f.extension.toLowerCase() === "md" &&
+                  !this.plugin.isExcalidrawFile(f)
+                ) {
+                  const element = await insertMarkdownImage(this.view, f, {
+                    x: this.currentPosition.x + counter * 50,
+                    y: this.currentPosition.y + counter * 50,
+                  });
+                  if (element) {
+                    ids.push(element.id);
+                    counter++;
+                    ea.selectElementsInView(ids);
+                  }
+                  continue;
+                }
+                if (IMAGE_TYPES.contains(f.extension) || f.extension === "md") {
+                  ids.push(
+                    await ea.addImage(
+                      this.currentPosition.x + counter * 50,
+                      this.currentPosition.y + counter * 50,
+                      f,
+                      !(internalDragAction === "image-fullsize"),
+                    ),
+                  );
                   counter++;
                   await ea.addElementsToView(false, false, true);
                   ea.selectElementsInView(ids);
                 }
                 if (f.extension.toLowerCase() === "pdf") {
-                  const insertPDFModal = new InsertPDFModal(this.plugin, this.view);
+                  const insertPDFModal = new InsertPDFModal(
+                    this.plugin,
+                    this.view,
+                  );
                   insertPDFModal.open(f);
                 }
               }
@@ -224,21 +403,23 @@ export class DropManager {
             }
 
             if (internalDragAction === "embeddable") {
-              const ea:ExcalidrawAutomate = getEA(this.view);
-              let column:number = 0;
-              let row:number = 0;
-              const ids:string[] = [];
+              const ea: ExcalidrawAutomate = getEA(this.view);
+              let column: number = 0;
+              let row: number = 0;
+              const ids: string[] = [];
               for (const f of draggable.files) {
-                ids.push(await insertEmbeddableToView(
-                  ea,
-                  {
-                    x:this.currentPosition.x + column*500,
-                    y:this.currentPosition.y + row*550
-                  },
-                  f,
-                ));
+                ids.push(
+                  await insertEmbeddableToView(
+                    ea,
+                    {
+                      x: this.currentPosition.x + column * 500,
+                      y: this.currentPosition.y + row * 550,
+                    },
+                    f,
+                  ),
+                );
                 column = (column + 1) % 3;
-                if(column === 0) {
+                if (column === 0) {
                   row++;
                 }
               }
@@ -253,11 +434,13 @@ export class DropManager {
                   f,
                   this.file.path,
                   true,
-                )}]]`, undefined,false
+                )}]]`,
+                undefined,
+                false,
               );
               this.currentPosition.y += st.currentItemFontSize * 2;
             }
-            this.view.save(false);
+            await this.view.save(false);
           })();
         }
         return false;
@@ -266,285 +449,292 @@ export class DropManager {
     //---------------------------------------------------------------------------------
     // externalDragAction
     //---------------------------------------------------------------------------------
-    if (event.dataTransfer.types.includes("Files")) {
-      if (event.dataTransfer.types.includes("text/plain")) {
-        const text: string = event.dataTransfer.getData("text");
-        if (text && onDropHook("text", null, text)) {
-          return false;
-        }
-        if(text && (externalDragAction === "image-url") && hyperlinkIsImage(text)) {
-          this.view.addImageWithURL(text);
-          return false;
-        }
-        if(text && (externalDragAction === "link")) {
-          if (
-            this.plugin.settings.iframelyAllowed &&
-            text.match(/^https?:\/\/\S*$/)
-          ) {
-            this.view.addTextWithIframely(text);
-            return false;
-          } else {
-            this.view.addText(text);
-            return false;
-          }
-        }
-        if(text && (externalDragAction === "embeddable")) {
-          const ea = getEA(this.view) as ExcalidrawAutomate;
-          insertEmbeddableToView(
-            ea,
-            this.currentPosition,
-            undefined,
-            text,
-          ).then(()=>ea.destroy());
-          return false;
-        }
-      }
-
-      if(event.dataTransfer.types.includes("text/html")) {
-        const html = event.dataTransfer.getData("text/html");
-        const src = html.match(/src=["']([^"']*)["']/)
-        if(src && (externalDragAction === "image-url") && hyperlinkIsImage(src[1])) {
-          this.view.addImageWithURL(src[1]);
-          return false;
-        }
-        if(src && (externalDragAction === "link")) {
-          if (
-            this.plugin.settings.iframelyAllowed &&
-            src[1].match(/^https?:\/\/\S*$/)
-          ) {
-            this.view.addTextWithIframely(src[1]);
-            return false;
-          } else {
-            this.view.addText(src[1]);
-            return false;
-          }
-        }
-        if(src && (externalDragAction === "embeddable")) {
-          const ea = getEA(this.view) as ExcalidrawAutomate;
-          insertEmbeddableToView(
-            ea,
-            this.currentPosition,
-            undefined,
-            src[1],
-          ).then(ea.destroy);
-          return false;
-        }
-      }
-      
-      if (event.dataTransfer.types.length >= 1 && ["image-url","image-import","embeddable"].contains(localFileDragAction)) {
+    const html = event.dataTransfer.getData("text/html");
+    const src = html.match(/src=["']([^"']*)["']/);
+    const href = html.match(/href=["']([^"']*)["']/);
+    const textText = event.dataTransfer.getData("text") || event.dataTransfer.getData("text/plain");
+    const uriText = event.dataTransfer.getData("text/uri-list")
+      .split(/\r?\n/).map(line => line.trim()).find(line => line && !line.startsWith("#")) ?? "";
+    let text = src ? src[1] : textText;
+    if (!text) text = uriText;
+    const hasFiles = event.dataTransfer.types.includes("Files");
+    const isWebURL = (value: string) => /^(blob:)?https?:\/\/\S+$/.test(value);
+    // Browser image drags can carry a temporary file as well as their URL.
+    // Resolve the web action before entering the separate OS-file action map.
+    const webSource = [text, uriText, textText, href?.[1]].find(isWebURL);
+    // Image actions use the image source; navigation actions retain the page.
+    if (externalDragAction === "link" || externalDragAction === "embeddable") {
+      text = [textText, uriText, href?.[1], text].find(isWebURL) ?? text;
+    }
+    if (hasFiles && webSource) text = isWebURL(text) ? text : webSource;
+    if (hasFiles && !webSource) {
+      if (
+        event.dataTransfer.types.length >= 1 &&
+        ["image-url", "image-import", "embeddable"].contains(
+          localFileDragAction,
+        )
+      ) {
         const files = Array.from(event.dataTransfer.files || []);
-        
-        for(let i = 0; i < files.length; i++) {
+
+        for (let i = 0; i < files.length; i++) {
           // Try multiple ways to get file path
           const file = files[i];
-          let path = file?.path
+          let path = file?.path;
 
-          if(!path && file && DEVICE.isDesktop) {
+          if (!path && file && DEVICE.isDesktop) {
             //https://www.electronjs.org/docs/latest/breaking-changes#removed-filepath
-            const { webUtils } = require('electron');
-            if(webUtils && webUtils.getPathForFile) {
+            const webUtils = window.electron.webUtils;
+            if (webUtils && webUtils.getPathForFile) {
               path = webUtils.getPathForFile(file);
             }
           }
-          if(!path) {            
-            new Notice(t("ERROR_CANT_READ_FILEPATH"),6000);
-            return true; //excalidarw to continue processing
+          if (!path) {
+            new Notice(t("ERROR_CANT_READ_FILEPATH"), 6000);
+            return true; //excalidraw to continue processing
           }
-          const link = getInternalLinkOrFileURLLink(path, this.plugin, event.dataTransfer.files[i].name, this.file);
-          const {x,y} = this.currentPosition;
-          const pos = {x:x+i*300, y:y+i*300};
-          if(link.isInternal) {
-            if(localFileDragAction === "embeddable") {
-              const ea = getEA(this.view) as ExcalidrawAutomate;
-              insertEmbeddableToView(ea, pos, link.file).then(()=>ea.destroy());
+          const link = getInternalLinkOrFileURLLink(
+            path,
+            this.plugin,
+            event.dataTransfer.files[i].name,
+            this.file,
+          );
+          const { x, y } = this.currentPosition;
+          const pos = { x: x + i * 300, y: y + i * 300 };
+          if (link.isInternal) {
+            if (
+              files.length === 1 &&
+              link.file.extension.toLowerCase() === "md"
+            ) {
+              this.openDroppedMarkdownFile(
+                link.file,
+                pos,
+                localFileDragAction === "embeddable"
+                  ? "embeddable"
+                  : "image",
+              );
+              continue;
+            }
+            if (localFileDragAction === "embeddable") {
+              const ea = getEA(this.view);
+              void insertEmbeddableToView(ea, pos, link.file).then(() =>
+                ea.destroy(),
+              );
             } else {
-              if(link.file.extension === "pdf") {
-                const insertPDFModal = new InsertPDFModal(this.plugin, this.view);
+              if (link.file.extension === "pdf") {
+                const insertPDFModal = new InsertPDFModal(
+                  this.plugin,
+                  this.view,
+                );
                 insertPDFModal.open(link.file);
               }
-              const ea = getEA(this.view) as ExcalidrawAutomate;
-              insertImageToView(ea, pos, link.file).then(()=>ea.destroy()) ;
+              const ea = getEA(this.view);
+              void insertImageToView(ea, pos, link.file).then(() =>
+                ea.destroy(),
+              );
             }
           } else {
             const extension = getURLImageExtension(link.url);
-            if(localFileDragAction === "image-import") {
-              if (IMAGE_TYPES.contains(extension)) {
-                (async () => {
-                  const droppedFilename = event.dataTransfer.files[i].name;
-                  const fileToImport = await event.dataTransfer.files[i].arrayBuffer();
-                  let {folder:_, filepath} = await getAttachmentsFolderAndFilePath(this.app, this.file.path, droppedFilename);
-                  const maybeFile = this.app.vault.getAbstractFileByPath(filepath);
-                  if(maybeFile && maybeFile instanceof TFile) {
-                    const action = await ScriptEngine.suggester(
-                      this.app,[
-                        "Use the file already in the Vault instead of importing",
-                        "Overwrite existing file in the Vault",
-                        "Import the file with a new name",
-                      ],[
-                        "Use",
-                        "Overwrite",
-                        "Import",
-                      ],
-                      "A file with the same name/path already exists in the Vault",
-                    );
-                    switch(action) {
-                      case "Import":
-                        const {folderpath,filename,basename:_,extension:__} = splitFolderAndFilename(filepath);
-                        filepath = getNewUniqueFilepath(this.app.vault, filename, folderpath);
-                        break;
-                        case "Overwrite":
-                          await this.app.vault.modifyBinary(maybeFile, fileToImport);
-                          // there is deliberately no break here
-                      case "Use":
-                      default:
-                        const ea = getEA(this.view) as ExcalidrawAutomate;
-                        await insertImageToView(ea, pos, maybeFile);
-                        ea.destroy();
-                        return false;
-                    }
-                  }
-                  const file = await this.app.vault.createBinary(filepath, fileToImport)
-                  const ea = getEA(this.view) as ExcalidrawAutomate;
-                  await insertImageToView(ea, pos, file);
-                  ea.destroy();
-                })();
-              } else if(extension === "excalidraw") {
-                return true; //excalidarw to continue processing
+            if (localFileDragAction === "image-import") {
+              if (extension === "excalidraw") {
+                return true; //excalidraw to continue processing
               } else {
-                (async () => {
-                  const {folder:_, filepath} = await getAttachmentsFolderAndFilePath(this.app, this.file.path,event.dataTransfer.files[i].name);
-                  const file = await this.app.vault.createBinary(filepath, await event.dataTransfer.files[i].arrayBuffer());
-                  const modal = new UniversalInsertFileModal(this.plugin, this.view);
-                  modal.open(file, pos);
-                })();
+                void this.importDroppedFile(files[i], pos, files.length === 1, extension);
               }
-            }
-            else if(localFileDragAction === "embeddable" || !IMAGE_TYPES.contains(extension)) {
-              const ea = getEA(this.view) as ExcalidrawAutomate;
-              insertEmbeddableToView(ea, pos, null, link.url).then(()=>ea.destroy());
-              if(localFileDragAction !== "embeddable") {
-                new Notice("Not imported to Vault. Embedded with local URI");
+            } else if (
+              localFileDragAction === "embeddable" ||
+              !IMAGE_TYPES.contains(extension)
+            ) {
+              const ea = getEA(this.view);
+              void insertEmbeddableToView(ea, pos, null, link.url).then(() =>
+                ea.destroy(),
+              );
+              if (localFileDragAction !== "embeddable") {
+                new Notice("Not imported to vault. Embedded with local uri.");
               }
             } else {
-              const ea = getEA(this.view) as ExcalidrawAutomate;
-              insertImageToView(ea, pos, link.url).then(()=>ea.destroy());
+              const ea = getEA(this.view);
+              void insertImageToView(ea, pos, link.url).then(() =>
+                ea.destroy(),
+              );
             }
           }
-        };
+        }
         return false;
       }
 
-      if(event.dataTransfer.types.length >= 1 && localFileDragAction === "link") {
-        const ea = getEA(this.view) as ExcalidrawAutomate;
-        for(let i=0;i<event.dataTransfer.files.length;i++) {
+      if (
+        event.dataTransfer.types.length >= 1 &&
+        localFileDragAction === "link"
+      ) {
+        const ea = getEA(this.view);
+        for (let i = 0; i < event.dataTransfer.files.length; i++) {
           const file = event.dataTransfer.files[i];
           let path = file?.path;
           const name = file?.name;
-          if(!path && file && DEVICE.isDesktop) {
+          if (!path && file && DEVICE.isDesktop) {
             //https://www.electronjs.org/docs/latest/breaking-changes#removed-filepath
-            const { webUtils } = require('electron');
-            if(webUtils && webUtils.getPathForFile) {
+            const webUtils = window.electron.webUtils;
+            if (webUtils && webUtils.getPathForFile) {
               path = webUtils.getPathForFile(file);
             }
           }
-          if(!path || !name) {
-            new Notice(t("ERROR_CANT_READ_FILEPATH"),6000);
+          if (!path || !name) {
+            new Notice(t("ERROR_CANT_READ_FILEPATH"), 6000);
             ea.destroy();
-            return true; //excalidarw to continue processing
+            return true; //excalidraw to continue processing
           }
-          const link = getInternalLinkOrFileURLLink(path, this.plugin, name, this.file);
+          const link = getInternalLinkOrFileURLLink(
+            path,
+            this.plugin,
+            name,
+            this.file,
+          );
           const id = ea.addText(
-            this.currentPosition.x+i*40,
-            this.currentPosition.y+i*20,
-            link.isInternal ? link.link :`📂 ${name}`);
-          if(!link.isInternal) {
+            this.currentPosition.x + i * 40,
+            this.currentPosition.y + i * 20,
+            link.isInternal ? link.link : `📂 ${name}`,
+          );
+          if (!link.isInternal) {
             ea.getElement(id).link = link.link;
           }
         }
-        ea.addElementsToView().then(()=>ea.destroy());
+        void ea.addElementsToView().then(() => ea.destroy());
         return false;
       }
 
       return true;
     }
 
-    if (event.dataTransfer.types.includes("text/plain") || event.dataTransfer.types.includes("text/uri-list") || event.dataTransfer.types.includes("text/html")) {
-
-      const html = event.dataTransfer.getData("text/html");
-      const src = html.match(/src=["']([^"']*)["']/);
-      const htmlText = src ? src[1] : "";
-      const textText = event.dataTransfer.getData("text");
-      const uriText = event.dataTransfer.getData("text/uri-list");
-
-      let text: string = src ? htmlText : textText;
-      if (!text || text === "") {
-        text = uriText
-      }
+    if (
+      event.dataTransfer.types.includes("text/plain") ||
+      event.dataTransfer.types.includes("text/uri-list") ||
+      event.dataTransfer.types.includes("text/html")
+    ) {
       if (!text || text === "") {
         return true;
       }
       if (!onDropHook("text", null, text)) {
-        if(text && (externalDragAction==="embeddable") && /^(blob:)?(http|https):\/\/[^\s/$.?#].[^\s]*$/.test(text)) {
+        if (
+          text &&
+          externalDragAction === "embeddable" &&
+          /^(blob:)?(http|https):\/\/[^\s/$.?#].[^\s]*$/.test(text)
+        ) {
+          // Let the component own provider-specific sizing and insertion. Its
+          // awaited host callback can outlive the browser's drag-data access, so
+          // forward an independent URL-only transfer instead of the original
+          // thumbnail File/HTML payload, which could select image insertion.
+          const ownerWindow = this.view.ownerWindow as Window & { DataTransfer: typeof DataTransfer };
+          const transfer = new ownerWindow.DataTransfer();
+          transfer.setData("text/plain", text);
+          event.dataTransfer = transfer;
           return true;
         }
-        if(text && (externalDragAction==="image-url") && hyperlinkIsYouTubeLink(text)) {
-          this.view.addYouTubeThumbnail(text);
-          return false;
-        }
-        if(uriText && (externalDragAction==="image-url") && hyperlinkIsYouTubeLink(uriText)) {
-          this.view.addYouTubeThumbnail(uriText);
-          return false;
-        }
-        if(text && (externalDragAction==="image-url") && hyperlinkIsImage(text)) {
-          this.view.addImageWithURL(text);
-          return false;
-        }
-        if(uriText && (externalDragAction==="image-url") && hyperlinkIsImage(uriText)) {
-          this.view.addImageWithURL(uriText);
-          return false;
-        }
-        if(text && (externalDragAction==="image-import") && hyperlinkIsImage(text)) {
-          this.view.addImageSaveToVault(text);
-          return false;
-        }
-        if(uriText && (externalDragAction==="image-import") && hyperlinkIsImage(uriText)) {
-          this.view.addImageSaveToVault(uriText);
+        if (
+          externalDragAction === "image-import" &&
+          (hyperlinkIsYouTubeLink(text) || hyperlinkIsYouTubeLink(uriText))
+        ) {
+          void this.view.addYouTubeThumbnail(hyperlinkIsYouTubeLink(uriText) ? uriText : text, true);
           return false;
         }
         if (
-          this.plugin.settings.iframelyAllowed &&
-          text.match(/^https?:\/\/\S*$/)
+          text &&
+          externalDragAction === "image-url" &&
+          hyperlinkIsYouTubeLink(text)
         ) {
-          this.view.addTextWithIframely(text);
+          void this.view.addYouTubeThumbnail(text);
           return false;
         }
-        //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/599
-        if(text.startsWith("obsidian://open?vault=")) {
-          const html = event.dataTransfer.getData("text/html");
-          if(html) {
-            const path = html.match(/href="app:\/\/obsidian\.md\/(.*?)"/);
-            if(path.length === 2) {
-              const link = decodeURIComponent(path[1]).split("#");
-              const f = this.app.vault.getAbstractFileByPath(link[0]);
-              if(f && f instanceof TFile) {
-                const path = this.app.metadataCache.fileToLinktext(f,this.file.path);
-                this.view.addText(`[[${
-                  path +
-                  (link.length>1 ? "#" + link[1] + "|" + path : "")
-                }]]`);
-                return;
-              }
-              this.view.addText(`[[${decodeURIComponent(path[1])}]]`);
-              return false;  
-            }
-          }
-          const path = text.split("file=");
-          if(path.length === 2) {
-            this.view.addText(`[[${decodeURIComponent(path[1])}]]`);
+        if (
+          uriText &&
+          externalDragAction === "image-url" &&
+          hyperlinkIsYouTubeLink(uriText)
+        ) {
+          void this.view.addYouTubeThumbnail(uriText);
+          return false;
+        }
+        if (
+          text &&
+          externalDragAction === "image-url" &&
+          hyperlinkIsImage(text)
+        ) {
+          void this.view.addImageWithURL(text);
+          return false;
+        }
+        if (
+          uriText &&
+          externalDragAction === "image-url" &&
+          hyperlinkIsImage(uriText)
+        ) {
+          void this.view.addImageWithURL(uriText);
+          return false;
+        }
+        if (
+          text &&
+          externalDragAction === "image-import" &&
+          hyperlinkIsImage(text)
+        ) {
+          void this.view.addImageSaveToVault(text);
+          return false;
+        }
+        if (
+          uriText &&
+          externalDragAction === "image-import" &&
+          hyperlinkIsImage(uriText)
+        ) {
+          void this.view.addImageSaveToVault(uriText);
+          return false;
+        }
+        if (
+          hasFiles &&
+          (externalDragAction === "image-url" || externalDragAction === "image-import")
+        ) {
+          // An extensionless or blob URL cannot be loaded as a persistent image
+          // reference. Preserve the browser's supplied image bytes instead.
+          const files = Array.from(event.dataTransfer.files);
+          const imageFile = files.find(file => IMAGE_TYPES.contains(getURLImageExtension(file.name)));
+          if (imageFile) {
+            void this.importDroppedFile(imageFile, { ...this.currentPosition }, files.length === 1);
             return false;
           }
         }
-        this.view.addText(text.replace(/(!\[\[.*#[^\]]*\]\])/g, "$1{40}"));
+        if (
+          this.plugin.settings.oEmbedAllowed &&
+          text.match(/^https:\/\/\S*$/)
+        ) {
+          void this.view.addTextWithOEmbed(text);
+          return false;
+        }
+        //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/599
+        if (text.startsWith("obsidian://open?vault=")) {
+          const html = event.dataTransfer.getData("text/html");
+          if (html) {
+            const path = html.match(/href="app:\/\/obsidian\.md\/(.*?)"/);
+            if (path.length === 2) {
+              const link = decodeURIComponent(path[1]).split("#");
+              const f = this.app.vault.getAbstractFileByPath(link[0]);
+              if (f && f instanceof TFile) {
+                const path = this.app.metadataCache.fileToLinktext(
+                  f,
+                  this.file.path,
+                );
+                void this.view.addText(
+                  `[[${
+                    path + (link.length > 1 ? `#${link[1]}|${path}` : "")
+                  }]]`,
+                );
+                return;
+              }
+              void this.view.addText(`[[${decodeURIComponent(path[1])}]]`);
+              return false;
+            }
+          }
+          const path = text.split("file=");
+          if (path.length === 2) {
+            void this.view.addText(`[[${decodeURIComponent(path[1])}]]`);
+            return false;
+          }
+        }
+        void this.view.addText(text.replace(/(!\[\[.*#[^\]]*\]\])/g, "$1{40}"));
       }
       return false;
     }
@@ -554,37 +744,61 @@ export class DropManager {
     return true;
   }
 
-  public onDragOver(e: any) {
+  public onDragOver(e: DragEvent) {
     const action = this.dropAction(e.dataTransfer);
     if (action) {
-      if(!this.draginfoDiv) {
-        this.draginfoDiv = createDiv({cls:"excalidraw-draginfo"});
+      if (!this.draginfoDiv) {
+        this.draginfoDiv = createDiv({ cls: "excalidraw-draginfo" });
         this.ownerDocument.body.appendChild(this.draginfoDiv);
       }
       let msg: string = "";
-      if((this.app as any).dragManager.draggable) {
+      let showModifierHint = true;
+      if (this.app.dragManager.draggable) {
         //drag from Obsidian file manager
-        msg = modifierKeyTooltipMessages().InternalDragAction[internalDragModifierType(e)];
-      } else if(e.dataTransfer.types.length === 1 && e.dataTransfer.types.includes("Files")) {
+        const actions = this.getInternalDropActions(this.app.dragManager.draggable);
+        const requestedAction = internalDragModifierType(e);
+        showModifierHint = actions.length > 1;
+        msg =
+          modifierKeyTooltipMessages().InternalDragAction[
+            actions.includes(requestedAction) ? requestedAction : "link"
+          ];
+      } else if (
+        e.dataTransfer.types.includes("Files") &&
+        !e.dataTransfer.types.some(type => ["text/plain", "text/html", "text/uri-list"].includes(type))
+      ) {
         //drag from OS file manager
-        msg = modifierKeyTooltipMessages().LocalFileDragAction[localFileDragModifierType(e)];
-        if(DEVICE.isMacOS && isWinCTRLorMacCMD(e)) {
-          msg = "CMD is reserved by MacOS for file system drag actions.\nCan't use it in Obsidian.\nUse a combination of SHIFT, CTRL, OPT instead."
+        msg =
+          modifierKeyTooltipMessages().LocalFileDragAction[
+            localFileDragModifierType(e)
+          ];
+        if (DEVICE.isMacOS && isWinCTRLorMacCMD(e)) {
+          msg =
+            "CMD is reserved by MacOS for file system drag actions.\nCan't use it in Obsidian.\nUse a combination of SHIFT, CTRL, OPT instead.";
         }
       } else {
         //drag from Internet
-        msg = modifierKeyTooltipMessages().WebBrowserDragAction[webbrowserDragModifierType(e)];
+        msg =
+          modifierKeyTooltipMessages().WebBrowserDragAction[
+            webbrowserDragModifierType(e)
+          ];
       }
-      if(!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        msg += DEVICE.isMacOS || DEVICE.isIOS
-        ? "\nTry SHIFT, OPT, CTRL combinations for other drop actions" 
-        : "\nTry SHIFT, CTRL, ALT, Meta combinations for other drop actions";
+      if (showModifierHint && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        msg +=
+          DEVICE.isMacOS || DEVICE.isIOS
+            ? "\nTry SHIFT, OPT, CTRL combinations for other drop actions"
+            : "\nTry SHIFT, CTRL, ALT, Meta combinations for other drop actions";
       }
-      if(this.draginfoDiv.innerText !== msg) this.draginfoDiv.innerText = msg;
-      const top = `${e.clientY-parseFloat(getComputedStyle(this.draginfoDiv).fontSize)*8}px`;
-      const left = `${e.clientX-this.draginfoDiv.clientWidth/2}px`;
-      if(this.draginfoDiv.style.top !== top) this.draginfoDiv.style.top = top;
-      if(this.draginfoDiv.style.left !== left) this.draginfoDiv.style.left = left;
+      if (this.draginfoDiv.innerText !== msg) {
+        this.draginfoDiv.innerText = msg;
+      }
+      const top = `${e.clientY - parseFloat(getComputedStyle(this.draginfoDiv).fontSize) * 8}px`;
+      const left = `${e.clientX - this.draginfoDiv.clientWidth / 2}px`;
+      if (this.draginfoDiv.style.top !== top) {
+        setStyle(this.draginfoDiv, { top });
+      }
+      if (this.draginfoDiv.style.left !== left) {
+        setStyle(this.draginfoDiv, { left });
+      }
       e.dataTransfer.dropEffect = action;
       e.preventDefault();
       return false;
@@ -592,37 +806,33 @@ export class DropManager {
   }
 
   public onDragLeave() {
-    if(this.draginfoDiv) {
+    if (this.draginfoDiv) {
       this.ownerDocument.body.removeChild(this.draginfoDiv);
       delete this.draginfoDiv;
     }
   }
 
   private dropAction(transfer: DataTransfer) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.dropAction, "ExcalidrawView.dropAction");
     // Return a 'copy' or 'link' action according to the content types, or undefined if no recognized type
-    const files = (this.app as any).dragManager.draggable?.files;
+    const files = this.app.dragManager.draggable?.files;
     if (files) {
       if (files[0] == this.file) {
         files.shift();
-        (
-          this.app as any
-        ).dragManager.draggable.title = `${files.length} files`;
+        if (this.app.dragManager.draggable) {
+          this.app.dragManager.draggable.title = `${files.length} files`;
+        }
       }
     }
-    if (
-      ["file", "files"].includes(
-        (this.app as any).dragManager.draggable?.type,
-      )
-    ) {
+    if (["file", "files"].includes(this.app.dragManager.draggable?.type)) {
       return "link";
     }
     if (
       transfer.types?.includes("text/html") ||
       transfer.types?.includes("text/plain") ||
+      transfer.types?.includes("text/uri-list") ||
       transfer.types?.includes("Files")
     ) {
       return "copy";
     }
-  };
+  }
 }

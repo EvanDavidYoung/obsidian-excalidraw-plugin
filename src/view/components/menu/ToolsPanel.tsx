@@ -4,28 +4,36 @@ import * as React from "react";
 import { ActionButton } from "./ActionButton";
 import { ICONS, saveIcon, stringToSVG } from "../../../constants/actionIcons";
 import { DEVICE, SCRIPT_INSTALL_FOLDER } from "../../../constants/constants";
-import { insertLaTeXToView, search } from "../../../utils/excalidrawAutomateUtils";
-import ExcalidrawView, { TextMode } from "../../ExcalidrawView";
+import {
+  insertLaTeXToView,
+  search,
+} from "../../../utils/excalidrawViewHelpers";
+import { TextMode } from "../../../shared/TextMode";
+import type ExcalidrawView from "../../ExcalidrawView";
 import { t } from "../../../lang/helpers";
 import { ReleaseNotes } from "../../../shared/Dialogs/ReleaseNotes";
 import { ScriptIconMap } from "../../../shared/Scripts";
 import { ScriptInstallPrompt } from "src/shared/Dialogs/ScriptInstallPrompt";
-import { ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { isWinALTorMacOPT, isWinCTRLorMacCMD, isSHIFT } from "src/utils/modifierkeyHelper";
+import {
+  isWinALTorMacOPT,
+  isWinCTRLorMacCMD,
+  isSHIFT,
+} from "src/utils/modifierkeyHelper";
 import { InsertPDFModal } from "src/shared/Dialogs/InsertPDFModal";
 import { ExportDialog } from "src/shared/Dialogs/ExportDialog";
 import { openExternalLink } from "src/utils/excalidrawViewUtils";
 import { UniversalInsertFileModal } from "src/shared/Dialogs/UniversalInsertFileModal";
-import { DEBUGGING, debug } from "src/utils/debugHelper";
 import { REM_VALUE } from "src/core/managers/StylesManager";
 import { getExcalidrawViews } from "src/utils/obsidianUtils";
+import { UIModeSettings } from "src/shared/Dialogs/UIModeSettings";
+import { getYouTubeUrl } from "src/constants/safeUrls";
 
-declare const PLUGIN_VERSION:string;
+declare const PLUGIN_VERSION: string;
 
 type PanelProps = {
   visible: boolean;
   view: WeakRef<ExcalidrawView>;
-  centerPointer: Function;
+  centerPointer: () => void;
   observer: WeakRef<ResizeObserver>;
 };
 
@@ -56,7 +64,9 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   onRightEdge: boolean = false;
   onBottomEdge: boolean = false;
   public containerRef: React.RefObject<HTMLDivElement>;
-  private view: ExcalidrawView;
+  private getView(): ExcalidrawView | null {
+    return this.props.view?.deref() ?? null;
+  }
 
   componentWillUnmount(): void {
     if (this.containerRef.current) {
@@ -64,14 +74,11 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
     }
     this.setState({ scriptIconMap: null });
     this.containerRef = null;
-    this.view = null;
   }
 
   constructor(props: PanelProps) {
     super(props);
-    this.view = props.view.deref();
-    const react = this.view.packages.react;
-    
+    const react = this.getView()?.packages.react;
     this.containerRef = react.createRef();
     this.state = {
       visible: props.visible,
@@ -88,14 +95,12 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   updateScriptIconMap(scriptIconMap: ScriptIconMap) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.updateScriptIconMap,"ToolsPanel.updateScriptIconMap()");
     this.setState(() => {
       return { scriptIconMap };
     });
   }
 
   setPreviewMode(isPreviewMode: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.setPreviewMode,"ToolsPanel.setPreviewMode()");
     this.setState(() => {
       return {
         isPreviewMode,
@@ -104,7 +109,6 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   setFullscreen(isFullscreen: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.setFullscreen,"ToolsPanel.setFullscreen()");
     this.setState(() => {
       return {
         isFullscreen,
@@ -113,8 +117,7 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   setDirty(isDirty: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.setDirty,"ToolsPanel.setDirty()");
-    this.setState(()=> {
+    this.setState(() => {
       return {
         isDirty,
       };
@@ -122,7 +125,6 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   setExcalidrawViewMode(isViewModeEnabled: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.setExcalidrawViewMode,"ToolsPanel.setExcalidrawViewMode()");
     this.setState(() => {
       return {
         excalidrawViewMode: isViewModeEnabled,
@@ -131,7 +133,6 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   toggleVisibility(isMobileOrZen: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.toggleVisibility,"ToolsPanel.toggleVisibility()");
     this.setTopCenter(isMobileOrZen);
     this.setState((prevState: PanelState) => {
       return {
@@ -141,8 +142,7 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   setTheme(theme: "dark" | "light") {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.setTheme,"ToolsPanel.setTheme()");
-    this.setState((prevState: PanelState) => {
+    this.setState(() => {
       return {
         theme,
       };
@@ -150,7 +150,6 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   setTopCenter(isMobileOrZen: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.setTopCenter,"ToolsPanel.setTopCenter()");
     this.setState(() => {
       return {
         left:
@@ -166,17 +165,12 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   updatePosition(deltaY: number = 0, deltaX: number = 0) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.updatePosition,"ToolsPanel.updatePosition()");
-    this.setState(() => {
-      const {
-        offsetTop,
-        offsetLeft,
-        clientWidth: width,
-        clientHeight: height,
-      } = this.containerRef.current.firstElementChild as HTMLElement;
+    this.setState((prevState: PanelState) => {
+      const { clientWidth: width, clientHeight: height } = this.containerRef
+        .current.firstElementChild as HTMLElement;
 
-      const top = offsetTop - deltaY;
-      const left = offsetLeft - deltaX;
+      const top = prevState.top - deltaY;
+      const left = prevState.left - deltaX;
 
       const {
         clientWidth: parentWidth,
@@ -195,203 +189,318 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
           top < parentOffsetTop
             ? parentOffsetTop
             : this.onBottomEdge
-            ? parentHeight - height + parentOffsetTop
-            : top,
+              ? parentHeight - height + parentOffsetTop
+              : top,
         left:
           left < parentOffsetLeft
             ? parentOffsetLeft
             : this.onRightEdge
-            ? parentWidth - width + parentOffsetLeft
-            : left,
+              ? parentWidth - width + parentOffsetLeft
+              : left,
       };
     });
   }
 
   actionOpenScriptInstallDialog() {
-    new ScriptInstallPrompt(this.view.plugin).open();
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    new ScriptInstallPrompt(view.plugin).open();
   }
 
   actionOpenReleaseNotes() {
-    new ReleaseNotes(
-      this.view.app,
-      this.view.plugin,
-      PLUGIN_VERSION,
-    ).open();
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    new ReleaseNotes(view.app, view.plugin, PLUGIN_VERSION).open();
+  }
+
+  actionOpenAboutExcalidraw() {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    new ReleaseNotes(view.app, view.plugin, null, {
+      message: t("FIRST_RUN"),
+      persistVersion: false,
+      title: t("ABOUT_EXCALIDRAW"),
+    }).open();
   }
 
   actionConvertExcalidrawToMD() {
-    this.view.convertExcalidrawToMD();
+    void this.getView()?.convertExcalidrawToMD();
   }
 
   actionToggleViewMode() {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
     if (this.state.isPreviewMode) {
-      this.view.changeTextMode(TextMode.raw);
+      void view.changeTextMode(TextMode.raw);
     } else {
-      this.view.changeTextMode(TextMode.parsed);
+      void view.changeTextMode(TextMode.parsed);
     }
   }
 
   actionToggleTrayMode() {
-    this.view.toggleTrayMode();
+    const plugin = this.getView()?.plugin;
+    if (!plugin) {
+      return;
+    }
+    new UIModeSettings(plugin).open();
   }
 
   actionToggleFullscreen() {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
     if (this.state.isFullscreen) {
-      this.view.exitFullscreen();
+      view.exitFullscreen();
     } else {
-      this.view.gotoFullscreen();
+      view.gotoFullscreen();
     }
   }
 
   actionSearch() {
-    search(this.view);
-  }
-
-  actionOCR(e:React.MouseEvent<HTMLButtonElement, MouseEvent>) {
-    if(!this.view.plugin.settings.taskboneEnabled) {
-      new Notice("Taskbone OCR is not enabled. Please go to plugins settings to enable it.",4000);
+    const view = this.getView();
+    if (!view) {
       return;
     }
-    this.view.plugin.taskbone.getTextForView(this.view, {forceReScan: isWinCTRLorMacCMD(e)});
+    void search(view);
   }
 
-  actionOpenLink(e:React.MouseEvent<HTMLButtonElement, MouseEvent>) {
+  actionOCR(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
+    if (!plugin.settings.taskboneEnabled) {
+      new Notice(t("TASKBONE_NOT_ENABLED"), 4000);
+      return;
+    }
+    void plugin.taskbone.getTextForView(view, {
+      forceReScan: isWinCTRLorMacCMD(e),
+    });
+  }
+
+  actionOpenLink(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
     const event = new MouseEvent("click", {
       ctrlKey: e.ctrlKey || !(DEVICE.isIOS || DEVICE.isMacOS),
-      metaKey: e.metaKey ||  (DEVICE.isIOS || DEVICE.isMacOS),
+      metaKey: e.metaKey || DEVICE.isIOS || DEVICE.isMacOS,
       shiftKey: e.shiftKey,
       altKey: e.altKey,
     });
-    this.view.handleLinkClick(event, true);
+    void view.handleLinkClick(event, true);
   }
 
   actionOpenLinkProperties() {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
     const event = new MouseEvent("click", {
       ctrlKey: true,
       metaKey: true,
       shiftKey: false,
       altKey: false,
     });
-    this.view.handleLinkClick(event);
+    void view.handleLinkClick(event);
   }
 
   actionForceSave() {
-    this.view.forceSave();
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    void view.forceSave();
   }
 
   actionExportLibrary() {
-    this.view.plugin.exportLibrary();
+    const plugin = this.getView()?.plugin;
+    if (!plugin) {
+      return;
+    }
+    void plugin.exportLibrary();
   }
 
   actionExportImage() {
-    const view = this.view;
-    if(!view.exportDialog) {
-      view.exportDialog = new ExportDialog(view.plugin, view,view.file);
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    if (!view.exportDialog) {
+      view.exportDialog = new ExportDialog(view.plugin, view, view.file);
       view.exportDialog.createForm();
     }
     view.exportDialog.open();
   }
 
   actionOpenAsMarkdown() {
-    this.view.openAsMarkdown();
-  }
-
-  actionLinkToElement(e:React.MouseEvent<HTMLButtonElement, MouseEvent>) {
-    if(isWinALTorMacOPT(e)) {
-      openExternalLink("https://youtu.be/yZQoJg2RCKI", this.view.app);
+    const view = this.getView();
+    if (!view) {
       return;
     }
-    this.view.copyLinkToSelectedElementToClipboard(
-      isWinCTRLorMacCMD(e) ? "group=" : (isSHIFT(e) ? "area=" : "")
+    void view.openAsMarkdown();
+  }
+
+  actionLinkToElement(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    if (isWinALTorMacOPT(e)) {
+      openExternalLink(getYouTubeUrl("yZQoJg2RCKI"), view.app);
+      return;
+    }
+    view.copyLinkToSelectedElementToClipboard(
+      isWinCTRLorMacCMD(e) ? "group=" : isSHIFT(e) ? "area=" : "",
     );
   }
 
   actionAddAnyFile() {
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
     this.props.centerPointer();
-    const insertFileModal = new UniversalInsertFileModal(this.view.plugin, this.view);
+    const insertFileModal = new UniversalInsertFileModal(plugin, view);
     insertFileModal.open();
   }
 
   actionInsertImage() {
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
     this.props.centerPointer();
-    this.view.plugin.insertImageDialog.start(
-      this.view,
-    );
+    plugin.insertImageDialog.start(view);
   }
 
   actionInsertPDF() {
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
     this.props.centerPointer();
-    const insertPDFModal = new InsertPDFModal(this.view.plugin, this.view);
+    const insertPDFModal = new InsertPDFModal(plugin, view);
     insertPDFModal.open();
   }
 
   actionInsertMarkdown() {
-    this.props.centerPointer();
-    this.view.plugin.insertMDDialog.start(
-      this.view,
-    );
-  }
-
-  actionInsertBackOfNote()  {
-    this.props.centerPointer();
-    this.view.insertBackOfTheNoteCard();
-  }
-
-  actionInsertLaTeX(e:React.MouseEvent<HTMLButtonElement, MouseEvent>) {
-    if(isWinALTorMacOPT(e)) {
-      openExternalLink("https://youtu.be/r08wk-58DPk", this.view.app);
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
       return;
     }
     this.props.centerPointer();
-    insertLaTeXToView(this.view);
+    plugin.insertMDDialog.start(view);
+  }
+
+  actionInsertBackOfNote() {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    this.props.centerPointer();
+    void view.insertBackOfTheNoteCard();
+  }
+
+  actionInsertLaTeX(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
+    if (isWinALTorMacOPT(e)) {
+      openExternalLink(getYouTubeUrl("r08wk-58DPk"), view.app);
+      return;
+    }
+    this.props.centerPointer();
+    insertLaTeXToView(view);
   }
 
   actionInsertLink() {
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
     this.props.centerPointer();
-    this.view.plugin.insertLinkDialog.start(
-      this.view.file.path,
-      (text: string, fontFamily?: 1 | 2 | 3 | 4, save?: boolean) => this.view.addText (text, fontFamily, save),
+    plugin.insertLinkDialog.start(view.file.path, (text: string) => {
+      void view.addText(text);
+    });
+  }
+
+  actionImportSVG() {
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
+    plugin.importSVGDialog.start(view);
+  }
+
+  actionCropImage() {
+    this.getView()?.app.commands.executeCommandById(
+      "obsidian-excalidraw-plugin:crop-image",
     );
   }
 
-  actionImportSVG(e:React.MouseEvent<HTMLButtonElement, MouseEvent>) {
-    this.view.plugin.importSVGDialog.start(this.view);
-  }
-  
-  actionCropImage(e:React.MouseEvent<HTMLButtonElement, MouseEvent>) {
-    // @ts-ignore
-    this.view.app.commands.executeCommandById("obsidian-excalidraw-plugin:crop-image");
-  }
-
   async actionRunScript(key: string) {
-    const view = this.view;
-    const plugin = view.plugin;
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
     const f = plugin.app.vault.getAbstractFileByPath(key);
     if (f && f instanceof TFile) {
-      plugin.scriptEngine.executeScript(
+      void plugin.scriptEngine.executeScriptFile(
         view,
-        await plugin.app.vault.read(f),
+        f,
         plugin.scriptEngine.getScriptName(f),
-        f
       );
     }
   }
 
   async actionPinScript(key: string, scriptName: string) {
-    const view = this.view; 
-    const api = view.excalidrawAPI as ExcalidrawImperativeAPI;
-    const plugin = view.plugin;
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return;
+    }
+    const api = view.excalidrawAPI;
     await plugin.loadSettings();
-    const index = plugin.settings.pinnedScripts.indexOf(key)
-    if(index > -1) {
-      plugin.settings.pinnedScripts.splice(index,1);
-      api?.setToast({message:`Pin removed: ${scriptName}`, duration: 3000, closable: true});
+    const index = plugin.settings.pinnedScripts.indexOf(key);
+    if (index > -1) {
+      plugin.settings.pinnedScripts.splice(index, 1);
+      api?.setToast({
+        message: `Pin removed: ${scriptName}`,
+        duration: 3000,
+        closable: true,
+      });
     } else {
       plugin.settings.pinnedScripts.push(key);
-      api?.setToast({message:`Pinned: ${scriptName}`, duration: 3000, closable: true})
+      api?.setToast({
+        message: `Pinned: ${scriptName}`,
+        duration: 3000,
+        closable: true,
+      });
     }
     await plugin.saveSettings();
-    getExcalidrawViews(plugin.app).forEach(excalidrawView=>excalidrawView.updatePinnedScripts());
+    getExcalidrawViews(plugin.app, true).forEach((excalidrawView) =>
+      excalidrawView.updatePinnedScripts(),
+    );
   }
 
   private islandOnClick(event: React.MouseEvent<HTMLDivElement, MouseEvent>) {
@@ -410,65 +519,55 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   private islandOnPointerDown(event: React.PointerEvent) {
-      const onDrag = (e: PointerEvent) => {
-        e.preventDefault();
-        this.pos1 = this.pos3 - e.clientX;
-        this.pos2 = this.pos4 - e.clientY;
-        this.pos3 = e.clientX;
-        this.pos4 = e.clientY;
-        this.updatePosition(this.pos2, this.pos1);
-      };
+    const view = this.getView();
+    if (!view) {
+      return;
+    }
 
-      const onPointerUp = () => {
-        this.view.ownerDocument?.removeEventListener("pointerup", onPointerUp);
-        this.view.ownerDocument?.removeEventListener("pointermove", onDrag);
-      };
-
-      event.preventDefault();
-      this.penDownX = this.pos3 = event.clientX;
-      this.penDownY = this.pos4 = event.clientY;
-      this.view.ownerDocument.addEventListener("pointerup", onPointerUp);
-      this.view.ownerDocument.addEventListener("pointermove", onDrag);
+    const onDrag = (e: PointerEvent) => {
+      e.preventDefault();
+      this.pos1 = this.pos3 - e.clientX;
+      this.pos2 = this.pos4 - e.clientY;
+      this.pos3 = e.clientX;
+      this.pos4 = e.clientY;
+      this.updatePosition(this.pos2, this.pos1);
     };
 
+    const onPointerUp = () => {
+      view.ownerDocument?.removeEventListener("pointerup", onPointerUp);
+      view.ownerDocument?.removeEventListener("pointermove", onDrag);
+    };
+
+    event.preventDefault();
+    this.penDownX = this.pos3 = event.clientX;
+    this.penDownY = this.pos4 = event.clientY;
+    view.ownerDocument.addEventListener("pointerup", onPointerUp);
+    view.ownerDocument.addEventListener("pointermove", onDrag);
+  }
+
   render() {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.render,"ToolsPanel.render()");
     return (
       <div
         ref={this.containerRef}
-        className={clsx("excalidraw", {
+        className={clsx("excalidraw", "excalidraw-toolsPanel-wrapper", {
           "theme--dark": this.state.theme === "dark",
         })}
-        style={{
-          width: "100%",
-          height: "100%",
-          position: "absolute",
-          touchAction: "none",
-        }}
       >
         <div
-          className="Island"
+          className="Island excalidraw-toolsPanel-island"
           style={{
             top: `${this.state.top}px`,
             left: `${this.state.left}px`,
-            width: `14.4rem`,
             display:
               this.state.visible && !this.state.excalidrawViewMode
                 ? "block"
                 : "none",
-            height: "fit-content",
-            maxHeight: "400px",
-            zIndex: 5,
           }}
         >
           <div
-            style={{
-              height: "26px",
-              width: "100%",
-              cursor: "move",
-            }}
-            onClick={this.islandOnClick.bind(this)}
-            onPointerDown={this.islandOnPointerDown.bind(this)}
+            className="excalidraw-toolsPanel-dragHandle"
+            onClick={(e) => this.islandOnClick(e)}
+            onPointerDown={(e) => this.islandOnPointerDown(e)}
           >
             <svg
               aria-hidden="true"
@@ -487,53 +586,59 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
           <div
             className="Island App-menu__left scrollbar"
             style={{
-              maxHeight: "350px",
-              width: "initial",
-              //@ts-ignore
-              "--padding": "0.125rem",
               display: this.state.minimized ? "none" : "block",
             }}
           >
-            <div className="panelColumn">
+            <div className="selected-shape-actions">
               <fieldset>
                 <legend>Utility actions</legend>
                 <div className="buttonList buttonListIcon">
-                <ActionButton
+                  <ActionButton
                     key={"scriptEngine"}
                     title={t("INSTALL_SCRIPT_BUTTON")}
-                    action={this.actionOpenScriptInstallDialog.bind(this)}
+                    action={() => this.actionOpenScriptInstallDialog()}
                     icon={ICONS.scriptEngine}
                   />
                   <ActionButton
                     key={"release-notes"}
                     title={t("READ_RELEASE_NOTES")}
-                    action={this.actionOpenReleaseNotes.bind(this)}
+                    action={() => this.actionOpenReleaseNotes()}
                     icon={ICONS.releaseNotes}
+                  />
+                  <ActionButton
+                    key={"about-excalidraw"}
+                    title={t("ABOUT_EXCALIDRAW")}
+                    action={() => this.actionOpenAboutExcalidraw()}
+                    icon={ICONS.Info}
                   />
                   {this.state.isPreviewMode === null ? (
                     <ActionButton
                       key={"convert"}
                       title={t("CONVERT_FILE")}
-                      action={(this.actionConvertExcalidrawToMD.bind(this))}
+                      action={() => this.actionConvertExcalidrawToMD()}
                       icon={ICONS.convertFile}
                     />
                   ) : (
-                    <ActionButton
-                      key={"viewmode"}
-                      title={this.state.isPreviewMode ? t("PARSED") : t("RAW")}
-                      action={this.actionToggleViewMode.bind(this)}
-                      icon={
-                        this.state.isPreviewMode
-                          ? ICONS.rawMode
-                          : ICONS.parsedMode
-                      }
-                    />
+                    !this.state.isPreviewMode && (
+                      <ActionButton
+                        key={"viewmode"}
+                        title={
+                          this.state.isPreviewMode ? t("PARSED") : t("RAW")
+                        }
+                        action={() => this.actionToggleViewMode()}
+                        icon={
+                          this.state.isPreviewMode
+                            ? ICONS.rawMode
+                            : ICONS.parsedMode
+                        }
+                      />
+                    )
                   )}
                   <ActionButton
-                    key={"tray-mode"}
-                    title={t("TRAY_MODE")}
-                    action={this.actionToggleTrayMode.bind(this)}
-                    icon={ICONS.trayMode}
+                    key={"ui-mode"}
+                    title={t("UI_MODE")}
+                    action={() => this.actionToggleTrayMode()}
+                    icon={ICONS.tray}
                   />
                   <ActionButton
                     key={"fullscreen"}
@@ -542,41 +647,43 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
                         ? t("EXIT_FULLSCREEN")
                         : t("GOTO_FULLSCREEN")
                     }
-                    action={this.actionToggleFullscreen.bind(this)}
+                    action={() => this.actionToggleFullscreen()}
                     icon={
                       this.state.isFullscreen
                         ? ICONS.exitFullScreen
                         : ICONS.gotoFullScreen
                     }
                   />
+                </div>
+                <div className="buttonList buttonListIcon">
                   <ActionButton
                     key={"search"}
                     title={t("SEARCH")}
-                    action={this.actionSearch.bind(this)}
+                    action={() => this.actionSearch()}
                     icon={ICONS.search}
                   />
                   <ActionButton
                     key={"ocr"}
                     title={t("RUN_OCR")}
-                    action={this.actionOCR.bind(this)}
+                    action={(e) => this.actionOCR(e)}
                     icon={ICONS.ocr}
                   />
                   <ActionButton
                     key={"openLink"}
                     title={t("OPEN_LINK_CLICK")}
-                    action={this.actionOpenLink.bind(this)}
+                    action={(e) => this.actionOpenLink(e)}
                     icon={ICONS.openLink}
                   />
                   <ActionButton
                     key={"openLinkProperties"}
                     title={t("OPEN_LINK_PROPS")}
-                    action={this.actionOpenLinkProperties.bind(this)}
+                    action={() => this.actionOpenLinkProperties()}
                     icon={ICONS.openLinkProperties}
                   />
                   <ActionButton
                     key={"save"}
                     title={t("FORCE_SAVE")}
-                    action={this.actionForceSave.bind(this)}
+                    action={() => this.actionForceSave()}
                     icon={saveIcon(this.state.isDirty)}
                   />
                 </div>
@@ -587,25 +694,25 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
                   <ActionButton
                     key={"lib"}
                     title={t("DOWNLOAD_LIBRARY")}
-                    action={this.actionExportLibrary.bind(this)}
+                    action={() => this.actionExportLibrary()}
                     icon={ICONS.exportLibrary}
                   />
                   <ActionButton
                     key={"exportIMG"}
                     title={t("EXPORT_IMAGE")}
-                    action={this.actionExportImage.bind(this)}
+                    action={() => this.actionExportImage()}
                     icon={ICONS.ExportImage}
                   />
                   <ActionButton
                     key={"md"}
                     title={t("OPEN_AS_MD")}
-                    action={this.actionOpenAsMarkdown.bind(this)}
+                    action={() => this.actionOpenAsMarkdown()}
                     icon={ICONS.switchToMarkdown}
                   />
                   <ActionButton
                     key={"link-to-element"}
                     title={t("INSERT_LINK_TO_ELEMENT")}
-                    action={this.actionLinkToElement.bind(this)}
+                    action={(e) => this.actionLinkToElement(e)}
                     icon={ICONS.copyElementLink}
                   />
                 </div>
@@ -616,55 +723,55 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
                   <ActionButton
                     key={"anyfile"}
                     title={t("UNIVERSAL_ADD_FILE")}
-                    action={this.actionAddAnyFile.bind(this)}
+                    action={() => this.actionAddAnyFile()}
                     icon={ICONS["add-file"]}
                   />
                   <ActionButton
                     key={"image"}
                     title={t("INSERT_IMAGE")}
-                    action={this.actionInsertImage.bind(this)}
+                    action={() => this.actionInsertImage()}
                     icon={ICONS.insertImage}
                   />
                   <ActionButton
                     key={"pdf"}
                     title={t("INSERT_PDF")}
-                    action={this.actionInsertPDF.bind(this)}
+                    action={() => this.actionInsertPDF()}
                     icon={ICONS.insertPDF}
-                  />                  
+                  />
                   <ActionButton
                     key={"insertMD"}
                     title={t("INSERT_MD")}
-                    action={this.actionInsertMarkdown.bind(this)}
+                    action={() => this.actionInsertMarkdown()}
                     icon={ICONS.insertMD}
                   />
                   <ActionButton
                     key={"insertBackOfNote"}
                     title={t("INSERT_CARD")}
-                    action={this.actionInsertBackOfNote.bind(this)}
+                    action={() => this.actionInsertBackOfNote()}
                     icon={ICONS.BackOfNote}
                   />
                   <ActionButton
                     key={"latex"}
                     title={t("INSERT_LATEX")}
-                    action={this.actionInsertLaTeX.bind(this)}
+                    action={(e) => this.actionInsertLaTeX(e)}
                     icon={ICONS.insertLaTeX}
                   />
                   <ActionButton
                     key={"link"}
                     title={t("INSERT_LINK")}
-                    action={this.actionInsertLink.bind(this)}
+                    action={() => this.actionInsertLink()}
                     icon={ICONS.insertLink}
                   />
                   <ActionButton
                     key={"import-svg"}
                     title={t("IMPORT_SVG")}
-                    action={this.actionImportSVG.bind(this)}
+                    action={() => this.actionImportSVG()}
                     icon={ICONS.importSVG}
                   />
                   <ActionButton
                     key={"crop-image"}
                     title={t("CROP_IMAGE")}
-                    action={this.actionCropImage.bind(this)}
+                    action={() => this.actionCropImage()}
                     icon={ICONS.Crop}
                   />
                 </div>
@@ -679,12 +786,21 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
   }
 
   private renderScriptButtons(isDownloaded: boolean) {
-    (process.env.NODE_ENV === 'development') && DEBUGGING && debug(this.renderScriptButtons,"ToolsPanel.renderScriptButtons()");
     if (Object.keys(this.state.scriptIconMap).length === 0) {
       return "";
     }
 
-    const downloadedScriptsRoot = `${this.view.plugin.settings.scriptFolderPath}/${SCRIPT_INSTALL_FOLDER}/`;
+    const view = this.getView();
+    const plugin = view?.plugin;
+    if (!view || !plugin) {
+      return null;
+    }
+
+    if (!plugin._loaded) {
+      return null;
+    }
+
+    const downloadedScriptsRoot = `${plugin.settings.scriptFolderPath}/${SCRIPT_INSTALL_FOLDER}/`;
 
     const filterCondition = (key: string): boolean =>
       isDownloaded
@@ -702,37 +818,37 @@ export class ToolsPanel extends React.Component<PanelProps, PanelState> {
 
     Object.keys(this.state.scriptIconMap)
       .filter((k) => filterCondition(k))
-      .forEach(k => groups.add(this.state.scriptIconMap[k].group))
+      .forEach((k) => groups.add(this.state.scriptIconMap[k].group));
 
-    const scriptlist = Array.from(groups).sort((a,b)=>a>b?1:-1);
+    const scriptlist = Array.from(groups).sort((a, b) => (a > b ? 1 : -1));
     scriptlist.push(scriptlist.shift());
     return (
       <>
-      {scriptlist.map((group, index) => ( 
-        <fieldset key={`${group}-${index}`}>
-          <legend>{isDownloaded ? group : (group === "" ? "User" : "User/"+group)}</legend>
-          <div className="buttonList buttonListIcon">
-            {Object.entries(this.state.scriptIconMap)
-              .filter(([k,v])=>v.group === group)
-              .sort()
-              .map(([key,value])=>(
-                <ActionButton
-                  key={key}
-                  title={value.name}
-                  action={this.actionRunScript.bind(this,key)}
-                  longpress={this.actionPinScript.bind(this,key, value.name)}
-                  icon={
-                    new WeakRef(value.svgString
-                    ? stringToSVG(value.svgString)
-                    : (
-                      ICONS.cog
-                    )).deref()
-                  }
-                />
-              ))}
-          </div>
-        </fieldset>
-      ))}
+        {scriptlist.map((group, index) => (
+          <fieldset key={`${group}-${index}`}>
+            <legend>
+              {isDownloaded ? group : group === "" ? "User" : `User/${group}`}
+            </legend>
+            <div className="buttonList buttonListIcon">
+              {Object.entries(this.state.scriptIconMap)
+                .filter(([_, v]) => v.group === group)
+                .sort()
+                .map(([key, value]) => (
+                  <ActionButton
+                    key={key}
+                    title={value.name}
+                    action={() => void this.actionRunScript(key)}
+                    longpress={() => void this.actionPinScript(key, value.name)}
+                    icon={new WeakRef(
+                      value.svgString
+                        ? stringToSVG(value.svgString)
+                        : ICONS.cog,
+                    ).deref()}
+                  />
+                ))}
+            </div>
+          </fieldset>
+        ))}
       </>
     );
   }

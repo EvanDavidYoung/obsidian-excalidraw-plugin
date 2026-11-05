@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import type { BoardEvents } from "./mcpBoard";
 import { BoardLink, type SceneApi } from "./boardLink";
 
@@ -16,12 +16,12 @@ function fakeApi(initial: ExcalidrawElement[]) {
   let scene = initial;
   const api: SceneApi = {
     getSceneElementsIncludingDeleted: () => scene,
-    getSceneElements: () => scene.filter(e => !e.isDeleted),
+    getSceneElements: () => scene.filter(e => !e.isDeleted) as never,
     updateScene: vi.fn(({ elements }) => { if (elements) scene = elements; }),
     addFiles: vi.fn(),
-    getAppState: () => ({ zoom: { value: 1 }, scrollX: 0, scrollY: 0 }) as never,
+    getAppState: () => ({ zoom: { value: 1 }, scrollX: 0, scrollY: 0, width: 1000, height: 800 }) as never,
     getFiles: () => ({}),
-    scrollToContent: vi.fn(),
+    setViewport: vi.fn(),
   };
   return { api, scene: () => scene };
 }
@@ -93,5 +93,59 @@ describe("BoardLink", () => {
     vi.advanceTimersByTime(5_000);
     expect(boards.made[0].close).toHaveBeenCalled();
     expect(boards.made[0].push).not.toHaveBeenCalled();
+  });
+
+  it("applies the board's changes without making them an undo step", () => {
+    const { api } = fakeApi([]);
+    const boards = fakeBoard();
+    new BoardLink(api, "http://board", { createBoard: boards.create }).start();
+    boards.made[0].events.onUpsert([rect("theirs", 1)]);
+    expect(api.updateScene).toHaveBeenCalledWith(expect.objectContaining({ captureUpdate: "NEVER" }));
+  });
+
+  describe("following the board's viewport requests", () => {
+    const start = (scene: ExcalidrawElement[]) => {
+      const { api } = fakeApi(scene);
+      const boards = fakeBoard();
+      new BoardLink(api, "http://board", { createBoard: boards.create }).start();
+      return { api, events: boards.made[0].events };
+    };
+
+    it("centres on one element at the current zoom", async () => {
+      const a = rect("a", 1);
+      const { api, events } = start([a, rect("b", 1)]);
+      await events.onViewport({ scrollToElementId: "a" } as never);
+      expect(api.setViewport).toHaveBeenCalledWith({ target: [a], fit: "none", animation: true });
+    });
+
+    it("fits several elements", async () => {
+      const [a, b] = [rect("a", 1), rect("b", 1)];
+      const { api, events } = start([a, b, rect("c", 1)]);
+      await events.onViewport({ scrollToElementIds: ["a", "b"] } as never);
+      expect(api.setViewport).toHaveBeenCalledWith({ target: [a, b], fit: "contain", animation: true });
+    });
+
+    it("fits the whole scene", async () => {
+      const a = rect("a", 1);
+      const { api, events } = start([a]);
+      await events.onViewport({ scrollToContent: true } as never);
+      expect(api.setViewport).toHaveBeenCalledWith({ target: [a], fit: "contain", animation: true });
+    });
+
+    it("keeps a zoom factor below 1 as a margin around the content", async () => {
+      const a = rect("a", 1);
+      const { api, events } = start([a]);
+      await events.onViewport({ scrollToContent: true, viewportZoomFactor: 0.5 } as never);
+      expect(api.setViewport).toHaveBeenCalledWith({
+        target: [a], fit: "contain", animation: true,
+        offsets: { top: 200, bottom: 200, left: 250, right: 250 },
+      });
+    });
+
+    it("rejects elements that aren't on the drawing", async () => {
+      const { api, events } = start([rect("a", 1)]);
+      await expect(events.onViewport({ scrollToElementId: "nope" } as never)).rejects.toThrow("nope");
+      expect(api.setViewport).not.toHaveBeenCalled();
+    });
   });
 });

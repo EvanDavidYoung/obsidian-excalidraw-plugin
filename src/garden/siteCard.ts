@@ -1,6 +1,6 @@
 import { lib } from "./excalidraw";
 import type { BinaryFileData, DataURL } from "@zsviczian/excalidraw/types/excalidraw/types";
-import type { FileId } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { FileId } from "@zsviczian/excalidraw/types/element/src/types";
 import type { Site, Stroke } from "./sites";
 
 export const CARD_WIDTH = 260;

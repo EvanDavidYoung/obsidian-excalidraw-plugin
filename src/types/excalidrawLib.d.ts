@@ -1,11 +1,39 @@
-import { RestoredDataState } from "@zsviczian/excalidraw/types/excalidraw/data/restore";
-import { ImportedDataState } from "@zsviczian/excalidraw/types/excalidraw/data/types";
-import { BoundingBox } from "@zsviczian/excalidraw/types/excalidraw/element/bounds";
-import { ElementsMap, ExcalidrawBindableElement, ExcalidrawElement, ExcalidrawFrameElement, ExcalidrawFrameLikeElement, ExcalidrawTextContainer, ExcalidrawTextElement, FontFamilyValues, FontString, NonDeleted, NonDeletedExcalidrawElement, Theme } from "@zsviczian/excalidraw/types/excalidraw/element/types";
-import { FontMetadata } from "@zsviczian/excalidraw/types/excalidraw/fonts/FontMetadata";
-import { AppState, BinaryFiles, DataURL, GenerateDiagramToCode, Zoom } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { Mutable } from "@zsviczian/excalidraw/types/excalidraw/utility-types";
-import { GlobalPoint } from "@zsviczian/excalidraw/types/math/types";
+import { BoundingBox } from "@zsviczian/excalidraw/types/element/src";
+import {
+  ElementsMap,
+  ElementsMapOrArray,
+  ExcalidrawBindableElement,
+  ExcalidrawElement,
+  ExcalidrawFrameElement,
+  ExcalidrawFrameLikeElement,
+  ExcalidrawTextContainer,
+  ExcalidrawTextElement,
+  FontFamilyValues,
+  FontString,
+  NonDeleted,
+  NonDeletedExcalidrawElement,
+  OrderedExcalidrawElement,
+  Theme,
+} from "@zsviczian/excalidraw/types/element/src/types";
+import {
+  CombineBrandsIfNeeded,
+  FontMetadata,
+} from "@zsviczian/excalidraw/types/common/src";
+import {
+  AppState,
+  BinaryFiles,
+  DataURL,
+  LibraryItem,
+  LibraryItems_anyVersion,
+  Zoom,
+} from "@zsviczian/excalidraw/types/excalidraw/types";
+import { GlobalPoint } from "@zsviczian/excalidraw/types/math/src/types";
+
+type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+
+type JsonObject = {
+  [key: string]: JsonValue;
+};
 
 interface MermaidConfig {
   /**
@@ -18,14 +46,14 @@ interface MermaidConfig {
    * @default "linear"
    */
   flowchart?: {
-      curve?: "linear" | "basis";
+    curve?: "linear" | "basis";
   };
   /**
    * Theme variables
    * @default { fontSize: "25px" }
    */
   themeVariables?: {
-      fontSize?: string;
+    fontSize?: string;
   };
   /**
    * Maximum number of edges to be rendered.
@@ -49,11 +77,40 @@ type EmbeddedLink =
     ))
   | null;
 
-declare namespace ExcalidrawLib {
-  type ElementUpdate<TElement extends ExcalidrawElement> = Omit<
-    Partial<TElement>,
-    "id" | "version" | "versionNonce"
-  >;
+export declare namespace ExcalidrawLib {
+  type ObsidianCommonHostUIMode = "full" | "compact" | "tray" | "mobile";
+
+  type ObsidianCommonHostAdapter = Readonly<{
+    protocolVersion: 1;
+    getDeviceInfo: () => Readonly<{
+      isDesktop: boolean;
+      isPhone: boolean;
+      isTablet: boolean;
+      isMobile: boolean;
+      isLinux: boolean;
+      isMacOS: boolean;
+      isWindows: boolean;
+      isIOS: boolean;
+      isAndroid: boolean;
+    }> | null;
+    getDesktopUIMode: () => ObsidianCommonHostUIMode;
+    getPreferredUIMode: (
+      formFactor: "phone" | "tablet" | "desktop",
+    ) => ObsidianCommonHostUIMode;
+    getCanvasLimits: () => Readonly<{
+      areaLimit: number;
+      widthHeightLimit: number;
+    }>;
+    getHighlightColor: (
+      sceneBackgroundColor: string,
+      opacity: number,
+    ) => string;
+  }>;
+
+  /** The fork owns the host service contract; dialog loading state is separate. */
+  type ObsidianExcalidrawHostAdapter =
+    import("@zsviczian/excalidraw/types/excalidraw/obsidianExcalidrawHost").ObsidianExcalidrawHostAdapter;
+
 
   type ExportOpts = {
     elements: readonly NonDeleted<ExcalidrawElement>[];
@@ -67,22 +124,33 @@ declare namespace ExcalidrawLib {
     ) => { width: number; height: number; scale?: number };
   };
 
-  function restore(
-    data: Pick<ImportedDataState, "appState" | "elements" | "files"> | null,
-    localAppState: Partial<AppState> | null | undefined,
-    localElements: readonly ExcalidrawElement[] | null | undefined,
-    elementsConfig?: { refreshDimensions?: boolean; repairBindings?: boolean },
-  ): RestoredDataState;
+  function restoreElements<T extends ExcalidrawElement>(
+    targetElements: readonly T[] | undefined | null,
+    /** used for additional context (e.g. repairing arrow bindings) */
+    existingElements: Readonly<ElementsMapOrArray> | null | undefined,
+    opts?: {
+      refreshDimensions?: boolean;
+      repairBindings?: boolean;
+      deleteInvisibleElements?: boolean;
+    },
+  ): CombineBrandsIfNeeded<T, OrderedExcalidrawElement>;
 
-  function exportToSvg(opts: Omit<ExportOpts, "getDimensions"> & {
-    elements: ExcalidrawElement[];
-    appState?: AppState;
-    files?: any;
-    exportPadding?: number;
-    exportingFrame: ExcalidrawFrameElement | null | undefined;
-    renderEmbeddables?: boolean;
-    skipInliningFonts?: boolean;
-  }): Promise<SVGSVGElement>;
+  function restoreLibraryItems(
+    libraryItems: LibraryItems_anyVersion | undefined,
+    defaultStatus: LibraryItem["status"],
+  ): LibraryItem[];
+
+  function exportToSvg(
+    opts: Omit<ExportOpts, "getDimensions"> & {
+      elements: ExcalidrawElement[];
+      appState?: AppState;
+      files?: BinaryFiles | null;
+      exportPadding?: number;
+      exportingFrame: ExcalidrawFrameElement | null | undefined;
+      renderEmbeddables?: boolean;
+      skipInliningFonts?: boolean;
+    },
+  ): Promise<SVGSVGElement>;
 
   function sceneCoordsToViewportCoords(
     sceneCoords: { sceneX: number; sceneY: number },
@@ -106,12 +174,6 @@ declare namespace ExcalidrawLib {
     },
   ): { x: number; y: number };
 
-  function determineFocusDistance(
-    element: ExcalidrawBindableElement,
-    a: GlobalPoint,
-    b: GlobalPoint,
-  ): number;
-
   function intersectElementWithLine(
     element: ExcalidrawBindableElement,
     a: GlobalPoint,
@@ -120,7 +182,9 @@ declare namespace ExcalidrawLib {
   ): GlobalPoint[];
 
   function getCommonBoundingBox(
-    elements: ExcalidrawElement[] | readonly NonDeleted<ExcalidrawElement>[],
+    elements:
+      | readonly ExcalidrawElement[]
+      | readonly NonDeleted<ExcalidrawElement>[],
   ): BoundingBox;
 
   function getContainerElement(
@@ -134,11 +198,11 @@ declare namespace ExcalidrawLib {
     elementsMap: ElementsMap,
     text: string,
   ): {
-    text: string,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
+    text: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
   };
 
   function getMaximumGroups(
@@ -146,13 +210,25 @@ declare namespace ExcalidrawLib {
     elementsMap: ElementsMap,
   ): ExcalidrawElement[][];
 
+  function getFontMetrics(
+    fontFamily: ExcalidrawTextElement["fontFamily"],
+    fontSize?: number,
+  ): {
+    unitsPerEm: number;
+    ascender: number;
+    descender: number;
+    lineHeight: number;
+    baseline: number;
+    fontString: string;
+  };
+
   function measureText(
     text: string,
     font: FontString,
     lineHeight: number,
-  ): { width: number; height: number; };
+  ): { width: number; height: number };
 
-  function getLineHeight (fontFamily: FontFamilyValues):number;
+  function getLineHeight(fontFamily: FontFamilyValues): number;
   function wrapText(text: string, font: FontString, maxWidth: number): string;
 
   function getFontString({
@@ -163,12 +239,7 @@ declare namespace ExcalidrawLib {
     fontFamily: FontFamilyValues;
   }): FontString;
 
-
-  function getFontFamilyString ({
-    fontFamily,
-  }: {
-    fontFamily: number;
-  }): string;
+  function getFontFamilyString({ fontFamily }: { fontFamily: number }): string;
 
   function getBoundTextMaxWidth(container: ExcalidrawElement): number;
 
@@ -180,46 +251,57 @@ declare namespace ExcalidrawLib {
     },
   ): Promise<Blob>;
 
-  function mutateElement<TElement extends Mutable<ExcalidrawElement>>(
-    element: TElement,
-    updates: ElementUpdate<TElement>,
-    informMutation?: boolean,
-  ): TElement;  
+  const mutateElement: typeof import("@zsviczian/excalidraw/types/element/src/mutateElement").mutateElement;
+  const getCommonBounds: typeof import("@zsviczian/excalidraw/types/element/src/bounds").getCommonBounds;
 
-  function getEmbedLink (link: string | null | undefined): EmbeddedLink;
+  function getEmbedLink(link: string | null | undefined): EmbeddedLink;
 
-  function mermaidToExcalidraw(
+  const mermaidToExcalidraw: typeof import("@zsviczian/excalidraw/types/excalidraw/components/TTDDialog/MermaidToExcalidrawLib").mermaidToExcalidraw;
+
+  /*function mermaidToExcalidraw(
     mermaidDefinition: string,
     opts: MermaidConfig,
-    forceSVG?: boolean,
   ): Promise<{
     elements?: ExcalidrawElement[];
     files?: any;
     error?: string;
-  } | undefined>;
+  } | undefined>;*/
 
-  var getSceneVersion: any;
-  var Excalidraw: any;
-  var MainMenu: any;
-  var WelcomeScreen: any;
-  var TTDDialogTrigger: any;
-  var TTDDialog: any;
-  var DiagramToCodePlugin: (props: {
-    generate: GenerateDiagramToCode;
-  }) => any;
-  
+  let hashElementsVersion: typeof import("@zsviczian/excalidraw/types/excalidraw").hashElementsVersion;
+  let convertToExcalidrawElements: typeof import("@zsviczian/excalidraw").convertToExcalidrawElements;
+  let Excalidraw: typeof import("@zsviczian/excalidraw").Excalidraw;
+  let MainMenu: typeof import("@zsviczian/excalidraw").MainMenu;
+  let WelcomeScreen: typeof import("@zsviczian/excalidraw").WelcomeScreen;
+  let TTDDialogTrigger: typeof import("@zsviczian/excalidraw").TTDDialogTrigger;
+  let TTDDialog: typeof import("@zsviczian/excalidraw").TTDDialog;
+  let DiagramToCodePlugin: typeof import("@zsviczian/excalidraw").DiagramToCodePlugin;
+
   function getDataURL(file: Blob | File): Promise<DataURL>;
-  function destroyObsidianUtils(): void;
+  const OBSIDIAN_COMMON_HOST_PROTOCOL_VERSION: 1;
+  function configureObsidianCommonHost(
+    adapter: ObsidianCommonHostAdapter,
+  ): () => void;
+  const OBSIDIAN_EXCALIDRAW_HOST_PROTOCOL_VERSION: typeof import("@zsviczian/excalidraw/types/excalidraw/obsidianExcalidrawHost").OBSIDIAN_EXCALIDRAW_HOST_PROTOCOL_VERSION;
+  const configureObsidianExcalidrawHost: typeof import("@zsviczian/excalidraw/types/excalidraw/obsidianExcalidrawHost").configureObsidianExcalidrawHost;
   function registerLocalFont(fontMetrics: FontMetadata, uri: string): void;
   function getFontFamilies(): string[];
   function registerFontsInCSS(): Promise<void>;
   function getCSSFontDefinition(fontFamily: number): Promise<string>;
-  function getTextFromElements (
+  function getTextFromElements(
     elements: readonly ExcalidrawElement[],
     separator?: string,
   ): string;
-  function safelyParseJSON (json: string): Record<string, any> | null;
-  function loadSceneFonts(elements: NonDeletedExcalidrawElement[]): Promise<void>;
-  function loadMermaid(): Promise<any>;
+  function safelyParseJSON(json: string): JsonObject | null;
+  function loadSceneFonts(
+    elements: NonDeletedExcalidrawElement[],
+  ): Promise<void>;
+  const loadMermaid: typeof import("@zsviczian/excalidraw/types/excalidraw/obsidianUtils").loadMermaid;
+  function syncInvalidIndices(
+    elements: readonly ExcalidrawElement[],
+  ): OrderedExcalidrawElement[];
+  function syncMovedIndices(
+    elements: readonly ExcalidrawElement[],
+    movedElements: ElementsMap,
+  ): OrderedExcalidrawElement[];
+  function getDefaultColorPalette(): [string, string, string, string, string][];
 }
-

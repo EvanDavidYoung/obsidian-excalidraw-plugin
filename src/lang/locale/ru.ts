@@ -1,32 +1,96 @@
-import { DEVICE, FRONTMATTER_KEYS, CJK_FONTS } from "src/constants/constants";
-import { TAG_AUTOEXPORT, TAG_MDREADINGMODE, TAG_PDFEXPORT } from "src/constants/constSettingsTags";
-import { labelALT, labelCTRL, labelMETA, labelSHIFT } from "src/utils/modifierkeyHelper";
+import { DEVICE, FRONTMATTER_KEYS } from "src/constants/constants";
+import {
+  TAG_AUTOEXPORT,
+  TAG_MDREADINGMODE,
+  TAG_PDFEXPORT,
+} from "src/constants/constSettingsTags";
+import { URLs } from "src/constants/safeUrls";
+import {
+  labelALT,
+  labelCTRL,
+  labelMETA,
+  labelSHIFT,
+} from "src/utils/modifierKeyLabels";
 
 // русский
 export default {
+  // Native CLI and agent discovery
+  CLI_HELP: "Показать инструкции CLI и для агентов",
+  CLI_COPY_SKILL: "Копировать инструкции для агентов",
+  CLI_AGENT_INSTRUCTIONS: `Прочитай: ${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_CLI}\n\n<<инструкции пользователя>>`,
+  CLI_DESCRIPTION: "Нативный CLI Excalidraw",
+
   // main.ts
+  SETTINGS_DATA_INVALID:
+    "Excalidraw ожидает корректный файл data.json. Изменения настроек не будут сохранены, пока файл не будет восстановлен или вы не перезапустите Obsidian и не выберете сброс настроек.",
+  SETTINGS_DATA_REPAIRED_FROM_MEMORY:
+    "Получен пустой или нечитаемый файл настроек Excalidraw, поэтому он был отклонён. Активные настройки записаны обратно для восстановления data.json.",
+  SETTINGS_DATA_RECOVERED:
+    "Файл Excalidraw data.json был пуст или недоступен для чтения. Последняя исправная версия настроек восстановлена автоматически.",
+  SETTINGS_RECOVERY_MISSING_TITLE: "Файл настроек Excalidraw отсутствует",
+  SETTINGS_RECOVERY_MISSING_DESC:
+    "На этом устройстве есть последняя исправная резервная копия настроек. Восстановите её или сбросьте Excalidraw к заводским настройкам. При закрытии этого сообщения будет восстановлена резервная копия.",
+  SETTINGS_RECOVERY_CORRUPT_TITLE: "Файл настроек Excalidraw повреждён",
+  SETTINGS_RECOVERY_CORRUPT_DESC:
+    "Файл пуст или недоступен для чтения, а резервная копия на этом устройстве отсутствует. Сбросьте Excalidraw к заводским настройкам или оставьте файл без изменений, пока восстанавливаете корректный data.json из другого источника. При закрытии этого сообщения Excalidraw будет ждать замену файла.",
+  SETTINGS_RECOVERY_RESTORE_BACKUP: "Восстановить копию",
+  SETTINGS_RECOVERY_RESET_DEFAULTS: "Сбросить настройки",
+  SETTINGS_RECOVERY_WAIT_FOR_FILE: "Ждать восстановленный файл",
   CONVERT_URL_TO_FILE: "Сохранить изображение из URL в локальный файл",
   UNZIP_CURRENT_FILE: "Распаковать текущий файл Excalidraw",
-  ZIP_CURRENT_FILE: "Сжать текущий файл Excalidraw",
-  PUBLISH_SVG_CHECK: "Obsidian Publish: Поиск устаревших экспортированных SVG и PNG-файлов",
+  PUBLISH_SVG_CHECK:
+    "Obsidian Publish: Поиск устаревших экспортированных SVG и PNG-файлов",
   EMBEDDABLE_PROPERTIES: "Свойства встраиваемых элементов",
-  EMBEDDABLE_RELATIVE_ZOOM: "Масштабирование выбранных встраиваемых элементов до 100% относительно текущего масштаба холста",
+  EMBEDDABLE_RELATIVE_ZOOM:
+    "Масштабирование выбранных встраиваемых элементов до 100% относительно текущего масштаба холста",
   OPEN_IMAGE_SOURCE: "Открыть чертеж Excalidraw",
-  INSTALL_SCRIPT: "Установите скрипт",
-  UPDATE_SCRIPT: "Доступно обновление - нажмите для установки",
-  CHECKING_SCRIPT: "Проверка на наличие новой версии - Нажмите для переустановки",
-  UNABLETOCHECK_SCRIPT: "Проверка обновления не удалась - Нажмите, чтобы переустановить",
-  UPTODATE_SCRIPT: "Скрипт обновлен - Нажмите для переустановки",
   OPEN_AS_EXCALIDRAW: "Открыть как рисунок Excalidraw",
   TOGGLE_MODE: "Переключение между режимами Excalidraw и Markdown",
-  CONVERT_NOTE_TO_EXCALIDRAW: "Конвертировать заметку в формате Markdown в Excalidraw Drawing",
+  CONVERT_NOTE_TO_EXCALIDRAW:
+    "Конвертировать заметку в формате Markdown в Excalidraw Drawing",
   CONVERT_EXCALIDRAW: "Преобразование файлов *.excalidraw в файлы *.md",
   CREATE_NEW: "Создать новый чертеж",
   CONVERT_FILE_KEEP_EXT: "*.excalidraw => *.excalidraw.md",
   CONVERT_FILE_REPLACE_EXT: "*.excalidraw => *.md (совместимость с Logseq)",
   DOWNLOAD_LIBRARY: "Экспорт библиотеки трафаретов в файл *.excalidrawlib",
+  LIBRARY_MIGRATION_TITLE: "Перенести библиотеку Excalidraw в хранилище",
+  LIBRARY_MIGRATION_DESC:
+    "Excalidraw может хранить библиотеку в отдельном файле хранилища вместо data.json. Это делает сохранение стабильнее. Существующие элементы будут объединены с выбранным локальным файлом; файлы *.excalidrawlib в той же папке также будут загружены. Выберите «Позже», чтобы скрыть это сообщение до завтра.",
+  LIBRARY_MIGRATION_SYNC_WARNING:
+    'Для синхронизации файлов библиотеки включите «Синхронизировать все остальные типы» в настройках Obsidian Sync.',
+  LIBRARY_MIGRATION_KEEP_DATA_JSON: "Оставить в data.json",
+  LIBRARY_MIGRATION_LATER: "Позже",
+  LIBRARY_MIGRATION_MIGRATE: "Перенести библиотеку",
+  LIBRARY_MIGRATION_SUCCESS: "Библиотека Excalidraw перенесена в хранилище.",
+  LIBRARY_MIGRATION_FAILED:
+    "Не удалось перенести библиотеку. Исходная библиотека data.json не изменена.",
+  LIBRARY_FILE_READ_ERROR: "Не удалось прочитать файл библиотеки: {PATH}",
+  LIBRARY_STORAGE_NAME: "Хранилище библиотеки",
+  LIBRARY_STORAGE_DESC:
+    "Файлы хранилища делают сохранение стабильнее, поскольку библиотека находится вне data.json.",
+  LIBRARY_STORAGE_VAULT: "Папка хранилища (рекомендуется)",
+  LIBRARY_STORAGE_DATA_JSON: "data.json плагина (устаревшее)",
+  LIBRARY_FOLDER_NAME: "Папка библиотеки",
+  LIBRARY_FOLDER_DESC:
+    "Папка для локальной библиотеки и загруженных файлов. Файлы библиотек имеют расширение .excalidrawlib. Чтобы видеть их в проводнике файлов Obsidian, включите «Показывать все типы файлов» в настройках Obsidian.",
+  LIBRARY_FILE_NAME: "Имя файла локальной библиотеки",
+  LIBRARY_FILE_DESC:
+    "Имя редактируемого файла локальной библиотеки. Расширение добавляется автоматически.",
+  LIBRARY_MIGRATE_NOW: "Перенести библиотеку сейчас",
+  LIBRARY_MIGRATE_NOW_DESC:
+    "Перенести существующую библиотеку data.json в настроенный файл хранилища.",
+  LIBRARY_PATH_MISSING: "Этот путь сейчас не существует в хранилище.",
+  CREATE_FOLDER: "Создать папку",
+  CREATE_FOLDER_CONFIRM: "Создать папку <b>{PATH}</b>?",
+  CREATE_FOLDER_NEVER_MIND: "Не надо",
+  CREATE_FOLDER_YES: "Да",
+  CREATE_FOLDER_SUCCESS: "Папка создана: {PATH}",
+  CREATE_FOLDER_FAILED: "Не удалось создать папку: {PATH}",
+  CREATE_FOLDER_PATH_IS_FILE:
+    "Невозможно создать папку: по этому пути уже существует файл: {PATH}",
   OPEN_EXISTING_NEW_PANE: "Открыть существующий чертеж - В НОВОЙ ПАНЕЛИ",
-  OPEN_EXISTING_ACTIVE_PANE: "Открыть существующий чертеж - В ТЕКУЩЕЙ АКТИВНОЙ ПАНЕЛИ",
+  OPEN_EXISTING_ACTIVE_PANE:
+    "Открыть существующий чертеж - В ТЕКУЩЕЙ АКТИВНОЙ ПАНЕЛИ",
   TRANSCLUDE: "Вставить чертеж",
   TRANSCLUDE_MOST_RECENT: "Вставка последнего отредактированного рисунка",
   TOGGLE_LEFTHANDED_MODE: "Переключить левосторонний режим",
@@ -36,152 +100,391 @@ export default {
   NEW_IN_NEW_TAB: "Создать новый рисунок - В НОВОЙ ТАБЛИЦЕ",
   NEW_IN_ACTIVE_PANE: "Создать новый рисунок - В ТЕКУЩЕМ АКТИВНОМ ОКНЕ",
   NEW_IN_POPOUT_WINDOW: "Создать новый рисунок - В ОТКРЫВАЮЩЕМСЯ ОКНЕ",
-  NEW_IN_NEW_PANE_EMBED: "Создание нового рисунка - В СОСЕДНЕМ ОКНЕ - и вставка в активный документ",
-  NEW_IN_NEW_TAB_EMBED: "Создать новый чертеж - В НОВОЙ ТАБЛИЦЕ - и вставить в активный документ",
-  NEW_IN_ACTIVE_PANE_EMBED: "Создать новый рисунок - В ТЕКУЩЕМ АКТИВНОМ ОКНЕ - и вставить в активный документ",
-  NEW_IN_POPOUT_WINDOW_EMBED: "Создать новый рисунок - В ОТКРЫВАЮЩЕМСЯ ОКНЕ - и вставить в активный документ",
-  TOGGLE_LOCK: "Переключение текстового элемента между режимами редактирования RAW (без обработки) и PREVIEW (просмотр)",
-  DELETE_FILE: "Удалить выбранное изображение или файл Markdown из Obsidian хранилища",
+  NEW_IN_NEW_PANE_EMBED:
+    "Создание нового рисунка - В СОСЕДНЕМ ОКНЕ - и вставка в активный документ",
+  NEW_IN_NEW_TAB_EMBED:
+    "Создать новый чертеж - В НОВОЙ ТАБЛИЦЕ - и вставить в активный документ",
+  NEW_IN_ACTIVE_PANE_EMBED:
+    "Создать новый рисунок - В ТЕКУЩЕМ АКТИВНОМ ОКНЕ - и вставить в активный документ",
+  NEW_IN_POPOUT_WINDOW_EMBED:
+    "Создать новый рисунок - В ОТКРЫВАЮЩЕМСЯ ОКНЕ - и вставить в активный документ",
+  TOGGLE_LOCK:
+    "Переключение текстового элемента между режимами редактирования RAW (без обработки) и PREVIEW (просмотр)",
+  DELETE_FILE:
+    "Удалить выбранное изображение или файл Markdown из Obsidian хранилища",
   COPY_ELEMENT_LINK: "Скопировать [[ссылку]] для выбранного элемента(ов)",
   COPY_DRAWING_LINK: "Скопировать ![[ссылку на вставку]] для этого рисунка",
   INSERT_LINK_TO_ELEMENT: `Копирование [[ссылка]] для выбранного элемента в буфер обмена. ${labelCTRL()}+CLICK для копирования ссылки 'group='. ${labelSHIFT()}+CLICK для копирования ссылки 'area='.`,
-  INSERT_LINK_TO_ELEMENT_GROUP: "Скопируйте 'group=' ![[ссылка]] для выбранного элемента в буфер обмена.",
-  INSERT_LINK_TO_ELEMENT_AREA: "Скопировать 'area=' ![[ссылка]] для выбранного элемента в буфер обмена.",
-  INSERT_LINK_TO_ELEMENT_FRAME: "Скопировать 'frame=' ![[ссылка]] для выбранного элемента в буфер обмена.",
-  INSERT_LINK_TO_ELEMENT_FRAME_CLIPPED: "Скопировать 'clippedframe=' ![[ссылка]] для выбранного элемента в буфер обмена.",
-  INSERT_LINK_TO_ELEMENT_NORMAL: "Скопировать [[ссылка]] для выбранного элемента в буфер обмена.",
+  INSERT_LINK_TO_ELEMENT_GROUP:
+    "Скопируйте 'group=' ![[ссылка]] для выбранного элемента в буфер обмена.",
+  INSERT_LINK_TO_ELEMENT_AREA:
+    "Скопировать 'area=' ![[ссылка]] для выбранного элемента в буфер обмена.",
+  INSERT_LINK_TO_ELEMENT_FRAME:
+    "Скопировать 'frame=' ![[ссылка]] для выбранного элемента в буфер обмена.",
+  INSERT_LINK_TO_ELEMENT_FRAME_CLIPPED:
+    "Скопировать 'clippedframe=' ![[ссылка]] для выбранного элемента в буфер обмена.",
+  INSERT_LINK_TO_ELEMENT_NORMAL:
+    "Скопировать [[ссылка]] для выбранного элемента в буфер обмена.",
   INSERT_LINK_TO_ELEMENT_ERROR: "Выбор отдельного элемента в сцене",
   INSERT_LINK_TO_ELEMENT_READY: "Ссылка ГОТОВА и доступна в буфере обмена",
   INSERT_LINK: "Вставить ссылку на файл",
   INSERT_COMMAND: "Вставить команду Obsidian в качестве ссылки",
-  INSERT_IMAGE: "Вставить изображение или рисунок Excalidraw из вашего хранилища",
-  IMPORT_SVG: "Импорт SVG-файла в виде штрихов Excalidraw (поддержка SVG ограничена, TEXT в настоящее время не поддерживается)",
-  IMPORT_SVG_CONTEXTMENU: "Преобразование SVG в штрихи - с ограничениями",
+  INSERT_IMAGE:
+    "Вставить изображение или рисунок Excalidraw из вашего хранилища",
+  SVG_IMPORT_ERROR: "Не удалось преобразовать SVG",
+  SVG_IMPORT_WARNING: "SVG импортирован с ограничениями:",
+  SVG_IMPORT_COMPOSITING: "Непрозрачность перекрывающихся объектов и групп передаётся приблизительно.",
+  SVG_IMPORT_STROKE: "Некоторые окончания, соединения, масштабирование и пунктиры передаются приблизительно.",
+  SVG_IMPORT_UNSUPPORTED: "Неподдерживаемые возможности, например изображения, градиенты и обрезка, пропущены.",
+  SVG_IMPORT_CSS: "Сложные правила CSS и внешние таблицы стилей не поддерживаются.",
+  SVG_IMPORT_PAINT: "Неподдерживаемые цвета SVG заменены текущим цветом SVG или чёрным.",
+  SVG_IMPORT_TEXT: "Текст импортирован с доступными шрифтами. Сложное форматирование и расположение могут отличаться.",
+  SVG_IMPORT_VIEWPORT: "Обрезка по области просмотра не воспроизводится.",
+  IMPORT_SVG:
+    "Импорт SVG-файла в виде редактируемых элементов (ограниченная поддержка SVG)",
+  IMPORT_SVG_CONTEXTMENU: "Преобразовать SVG в редактируемые элементы - с ограничениями",
+  IMPORT_SVG_AS_ELEMENTS: "Импортировать SVG как Excalidraw",
+  SVG_CONVERT_ELEMENTS: "Преобразовать в элементы",
+  SVG_KEEP_IMAGE: "Оставить SVG-изображение",
+  MERMAID_SVG_CONVERSION_PROMPT: "Эта диаграмма — SVG-изображение. Преобразовать её в редактируемые фигуры и текст? Шрифты, оформление и некоторые эффекты могут отличаться.",
+  SVG_CONVERSION_CROP: "Перед преобразованием в элементы сбросьте обрезку изображения.",
   INSERT_MD: "Вставка файла markdown из хранилища",
+  INSERT_MARKDOWN_IMAGE: "Вставить редактируемое Markdown-изображение",
+  EDIT_MARKDOWN_IMAGE: "Редактировать Markdown-изображение",
+  MARKDOWN_IMAGE_SELECT_ERROR: "Выберите Markdown-изображение и повторите попытку",
+  MARKDOWN_IMAGE_TITLE: "Markdown-изображение",
+  MARKDOWN_IMAGE_INSERT_ERROR: "Не удалось вставить Markdown-изображение",
+  MARKDOWN_IMAGE_APPEARANCE: "Оформление",
+  MARKDOWN_IMAGE_WIDTH: "Ширина",
+  MARKDOWN_IMAGE_WIDTH_DESC: "Ширина потока Markdown в единицах холста",
+  MARKDOWN_IMAGE_BOTTOM_PADDING: "Нижний отступ",
+  MARKDOWN_IMAGE_BOTTOM_PADDING_DESC:
+    "Дополнительное пространство под отрисованным Markdown в пикселях",
+  MARKDOWN_IMAGE_FONT: "Шрифт",
+  MARKDOWN_IMAGE_FONT_COLOR: "Цвет шрифта",
+  MARKDOWN_IMAGE_BORDER: "Рамка",
+  MARKDOWN_IMAGE_BORDER_COLOR: "Цвет рамки",
+  MARKDOWN_IMAGE_CSS: "CSS",
+  MARKDOWN_IMAGE_CSS_DESC:
+    "CSS только для этого Markdown-изображения. Скопируйте SVG ниже и попросите предпочитаемую LLM подобрать нужный CSS.",
+  MARKDOWN_IMAGE_CSS_IMPORTANT_HINT:
+    "Если правило не действует, добавьте !important к объявлению.",
+  MARKDOWN_IMAGE_CSS_EDITOR_ARIA: "Редактор CSS для этого Markdown-изображения",
+  MARKDOWN_IMAGE_TRANSCLUSION_CSS_EDITOR_ARIA:
+    "Редактор CSS для встроенного Markdown",
+  MARKDOWN_IMAGE_INSERT_CSS_BOILERPLATE:
+    "Вставить шаблон CSS с комментариями",
+  MARKDOWN_IMAGE_COPY_SVG: "Копировать SVG текущего Markdown-изображения",
+  MARKDOWN_IMAGE_SVG_COPIED: "SVG Markdown-изображения скопирован",
+  MARKDOWN_IMAGE_SVG_COPY_ERROR:
+    "Не удалось скопировать SVG Markdown-изображения",
+  MARKDOWN_IMAGE_TRANSCLUSION_DIFFERENT_STYLE:
+    "Использовать отдельный стиль для встраиваний",
+  MARKDOWN_IMAGE_TRANSCLUSION_DIFFERENT_STYLE_DESC:
+    "Показать отдельные настройки оформления для встроенного Markdown.",
+  MARKDOWN_IMAGE_TRANSCLUSION_APPEARANCE: "Оформление встраиваний",
+  MARKDOWN_IMAGE_TRANSCLUSION_APPEARANCE_DESC:
+    "Если включено, эти настройки применяются к ![[встроенному тексту]] внутри Markdown-изображения.",
+  MARKDOWN_IMAGE_TRANSCLUSION_CSS: "CSS встраиваний",
+  MARKDOWN_IMAGE_TRANSCLUSION_CSS_DESC:
+    "Правила CSS применяются только к встроенному Markdown.",
+  MARKDOWN_IMAGE_SET_DEFAULT: "Сделать по умолчанию",
+  MARKDOWN_IMAGE_SAVE_DEFAULT_ARIA:
+    "Сохранить текущие настройки оформления как настройки по умолчанию",
+  MARKDOWN_IMAGE_DEFAULT_SAVED: "Настройки Markdown-изображения сохранены",
+  MARKDOWN_IMAGE_RENDER_NOW: "Отобразить сейчас",
+  MARKDOWN_IMAGE_UPDATING: "Обновление изображения…",
+  MARKDOWN_IMAGE_EXTERNAL_SOURCE: "Внешний источник Markdown",
+  MARKDOWN_IMAGE_OPEN_EXTERNAL_SOURCE_NEW_TAB:
+    "Открыть внешний источник Markdown в новой вкладке",
+  MARKDOWN_IMAGE_MAKE_LOCAL: "Создать локальную копию",
+  MARKDOWN_IMAGE_EXTERNAL_TARGET: "Внешняя заметка, заголовок или блок",
+  MARKDOWN_IMAGE_EXTERNAL_DESC: "Введите ссылку Obsidian для внешнего источника",
+  MARKDOWN_IMAGE_USE_SOURCE: "Использовать источник",
+  MARKDOWN_IMAGE_EXTRACT_LOCAL: "Извлечь локальный Markdown в заметку",
+  MARKDOWN_IMAGE_EXTRACT: "Извлечь в заметку",
+  MARKDOWN_IMAGE_DUPLICATE_ERROR: "Не удалось дублировать Markdown-изображение",
+  MARKDOWN_IMAGE_SELECT_SOURCE: "Выберите Markdown-заметку, заголовок или блок",
+  MARKDOWN_IMAGE_CHANGE_SOURCE_ERROR: "Не удалось изменить источник Markdown-изображения",
+  MARKDOWN_IMAGE_LOCAL_COPY_ERROR: "Не удалось создать локальную копию Markdown",
+  MARKDOWN_IMAGE_EXTRACT_TITLE: "Извлечь Markdown-изображение в заметку",
+  PROMPT_ERROR_INVALID_FILE_PATH: "Укажите допустимое имя файла и папку хранилища.",
+  FILE_AND_FOLDER_SELECTOR_FOLDER: "Папка",
+  FILE_AND_FOLDER_SELECTOR_FILENAME: "Имя файла",
+  FILE_AND_FOLDER_SELECTOR_EXPORT_TITLE: "Экспорт в хранилище",
+  FILE_AND_FOLDER_SELECTOR_EXPORT: "Экспортировать",
+  MARKDOWN_IMAGE_DEFAULT_NOTE: "Markdown-изображение.md",
+  MARKDOWN_IMAGE_CREATE_NOTE_ERROR: "Не удалось создать Markdown-заметку",
+  MARKDOWN_IMAGE_UNKNOWN_ERROR: "Неизвестная ошибка",
+  MARKDOWN_IMAGE_SOURCE_UNAVAILABLE: "Источник Markdown-изображения недоступен.",
+  MARKDOWN_IMAGE_RESERVED_MARKER: "Текст Markdown содержит зарезервированную строку-маркер.",
+  MARKDOWN_IMAGE_EMPTY_PLACEHOLDER: "Начните вводить текст в редакторе Markdown-изображения…",
+  MARKDOWN_IMAGE_NO_SELECTION: "Выберите Markdown-изображение для редактирования.",
+  MARKDOWN_IMAGE_ATTACHED_TO: "Привязано к {file}",
+  MARKDOWN_IMAGE_FOCUS_OWNER: "Перейти к исходному документу Excalidraw: {file}",
+  MARKDOWN_IMAGE_OWNER_UNAVAILABLE:
+    "Исходный документ Excalidraw больше недоступен.",
+  MARKDOWN_IMAGE_RESIZE_EDITOR: "Изменить размер редактора Markdown",
+  CONVERT_EMBEDDABLE_TO_MARKDOWN_IMAGE:
+    "Преобразовать в изображение Markdown",
+  CONVERT_MARKDOWN_IMAGE_TO_EMBEDDABLE:
+    "Преобразовать во встраиваемый элемент",
+  MARKDOWN_IMAGE_CONVERSION_ERROR:
+    "Не удалось преобразовать содержимое Markdown.",
+  MARKDOWN_IMAGE_H1_WARNING:
+    "Локальное изображение Markdown может содержать только один заголовок уровня 1 при преобразовании во встраиваемый элемент. Он должен быть первым содержимым, а его имя — уникальным в рисунке.",
+  MARKDOWN_IMAGE_SECTION_NAME: "Название раздела в конце заметки",
+  MARKDOWN_IMAGE_SECTION_NAME_PLACEHOLDER:
+    "Введите уникальное название раздела",
+  MARKDOWN_IMAGE_DELETE_TEXT_PROMPT:
+    "Удалить текст Markdown, сохранённый для этого изображения? Само изображение будет удалено со сцены в любом случае.",
+  MARKDOWN_IMAGE_KEEP_TEXT: "Сохранить текст Markdown",
+  MARKDOWN_IMAGE_DELETE_TEXT: "Удалить текст Markdown",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE:
+    "Использовать этот выбор при следующих удалениях",
+  MARKDOWN_IMAGE_REMEMBER_DELETE_CHOICE_DESC:
+    'Сбросить параметр «Удаление локальных Markdown-изображений» на «Спрашивать каждый раз» в настройках плагина Excalidraw.',
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_NAME: "Удаление локальных Markdown-изображений",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DESC:
+    "Выберите, следует ли при удалении локального Markdown-изображения также удалять Markdown-текст на обратной стороне заметки.",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_ASK: "Спрашивать каждый раз",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_KEEP: "Сохранять текст без запроса",
+  MARKDOWN_IMAGE_DELETE_BEHAVIOR_DELETE: "Удалять текст без запроса",
   INSERT_PDF: "Вставить PDF-файл из хранилища",
   UNIVERSAL_ADD_FILE: "Вставка ЛЮБОГО файла",
+  // Compatibility keys consumed by upstream Excalidraw via ExcalidrawPlugin.getLabel().
+  // Keep this group in sync across maintained locales.
+  // Lucide icon picker
+  INSERT_LUCIDE_ICON: "Вставить значок Lucide",
+  LUCIDE_SEARCH: "Поиск значков",
+  LUCIDE_SIZE: "Размер значка",
+  LUCIDE_SMALL: "Маленький (48)",
+  LUCIDE_MEDIUM: "Средний (96)",
+  LUCIDE_LARGE: "Большой (192)",
+  LUCIDE_PREVIOUS: "Назад",
+  LUCIDE_NEXT: "Далее",
+  LUCIDE_EMPTY: "Подходящих значков нет.",
+  LUCIDE_NO_DRAWING: "Выберите редактируемый рисунок Excalidraw для вставки значка.",
+  LUCIDE_APPROXIMATION: "Значок использует приближённое представление обводки или прозрачности.",
+  LUCIDE_INSERT_FAILED: "Не удалось завершить вставку значка. Проверьте рисунок и сохраните изменения перед повторной попыткой.",
   INSERT_CARD: "Добавить сноски",
   CONVERT_CARD_TO_FILE: "Переместить сноску в файл",
   ERROR_TRY_AGAIN: "Пожалуйста, попробуйте еще раз.",
   PASTE_CODEBLOCK: "Вставить блок кода",
+  PASTE_CODEBLOCK_AS: "Вставлять блок кода как",
+  PASTE_CODEBLOCK_AS_DESC: "Выберите способ вставки кода из буфера обмена или через пункт меню «Вставить блок кода».",
+  PASTE_CODEBLOCK_ASK: "Всегда спрашивать",
+  PASTE_CODEBLOCK_EMBEDDABLE: "Интерактивное встраивание",
+  PASTE_CODEBLOCK_CHOOSE: "Вставить этот блок кода как интерактивное встраивание или изображение Markdown?",
+  PASTE_CODEBLOCK_REMEMBER: "Запомнить мой выбор",
+  PASTE_CODEBLOCK_REMEMBER_DESC: "Это можно изменить в настройках Excalidraw в разделе «Встраивание файлов в Excalidraw».",
+  PASTE_CODEBLOCK_LANGUAGE: "Язык блока кода",
+  PASTE_CODEBLOCK_LANGUAGE_PLACEHOLDER: "javascript, html, python и т. д.",
+  PASTE_CODEBLOCK_TITLE: "Заголовок блока кода",
+  PASTE_CODEBLOCK_TITLE_PLACEHOLDER: "Введите заголовок или оставьте пустым для автоматического названия",
+  PASTE_CODEBLOCK_DEFAULT_TITLE: "Блок кода",
   INSERT_LATEX: `Вставьте формулу LaTeX (например, \\\binom{n}{k} = \\\frac{n!}{k!(n-k)!}).`,
   ENTER_LATEX: "Введите правильное выражение LaTeX",
   READ_RELEASE_NOTES: "Прочитать последние заметки о выпуске",
-  RUN_OCR: "OCR полного чертежа: Захват текста из freedraw + изображения в буфер обмена и doc.props",
-  RERUN_OCR: "Повторный запуск полного чертежа OCR: Захват текста из freedraw + изображения в буфер обмена и doc.props",
-  RUN_OCR_ELEMENTS: "OCR выделенных элементов: Захват текста из freedraw + изображения в буфер обмена",
+  ABOUT_EXCALIDRAW: "О Excalidraw",
+  RUN_OCR:
+    "OCR полного чертежа: Захват текста из freedraw + изображения в буфер обмена и doc.props",
+  RERUN_OCR:
+    "Повторный запуск полного чертежа OCR: Захват текста из freedraw + изображения в буфер обмена и doc.props",
+  RUN_OCR_ELEMENTS:
+    "OCR выделенных элементов: Захват текста из freedraw + изображения в буфер обмена",
   TRAY_MODE: "Переключение панели свойств в трей-режим",
   SEARCH: "Поиск текста на чертеже",
   CROP_PAGE: "Обрезка и маскирование выделенной страницы",
   CROP_IMAGE: "Обрезка и маскирование изображения",
-  ANNOTATE_IMAGE : "Аннотирование изображения в Excalidraw",
-  INSERT_ACTIVE_PDF_PAGE_AS_IMAGE: "Вставка активной страницы PDF в качестве изображения",
-  RESET_IMG_TO_100: "Установить размер выбранного элемента изображения на 100% от исходного",
-  RESET_IMG_ASPECT_RATIO: "Сбросить соотношение сторон выбранного элемента изображения",
-  TEMPORARY_DISABLE_AUTOSAVE: "Отключить автосохранение до следующего запуска Obsidian (устанавливайте этот параметр, только если вы знаете, что делаете)",
+  ANNOTATE_IMAGE: "Аннотирование изображения в Excalidraw",
+  INSERT_ACTIVE_PDF_PAGE_AS_IMAGE:
+    "Вставка активной страницы PDF в качестве изображения",
+  RESET_IMG_TO_100:
+    "Установить размер выбранного элемента изображения на 100% от исходного",
+  RESET_IMG_ASPECT_RATIO:
+    "Сбросить соотношение сторон выбранного элемента изображения",
+  TEMPORARY_DISABLE_AUTOSAVE:
+    "Отключить автосохранение до следующего запуска Obsidian (устанавливайте этот параметр, только если вы знаете, что делаете)",
   TEMPORARY_ENABLE_AUTOSAVE: "Включить автосохранение",
+
+  //ReleaseNotes.ts
+  RN_WELCOME: "Добро пожаловать в Excalidraw",
+  FIRST_RUN: `
+Плагин Excalidraw для Obsidian - это гораздо больше, чем «просто» инструмент для рисования. Благодаря глубокой интеграции с Obsidian он открывает совершенно новый подход к визуальному управлению личными знаниями.
+
+<div style="text-align:center;margin-top:10px;">
+<a href="${URLs.COMMUNITY_SKETCH_YOUR_MIND_COM_EE}" target="_blank"><img src="${URLs.SKETCH_YOUR_MIND_COM_IMAGES_LOGO_EE_PNG}" style="width:50%;"></a>
+</div>
+
+Чтобы начать без перегруза, очень рекомендую бесплатный мини-курс **[Excalidraw Essentials](${URLs.COMMUNITY_SKETCH_YOUR_MIND_COM_EE})**. Он помогает быстро разобраться в главном и освоить базовые принципы в структурированном формате.
+
+Вам не обязательно разбираться во всем в одиночку. Присоединяйтесь к **[сообществу Sketch Your Mind](${URLs.COMMUNITY_SKETCH_YOUR_MIND_COM})**, чтобы общаться с другими визуально мыслящими людьми, делиться своими рабочими процессами и выстраивать более плавную систему PKM.
+
+Если хотите увидеть, что уже возможно прямо сейчас, ниже есть обзор ключевых возможностей. А чтобы следить за новыми обновлениями и идеями по Visual PKM, подписывайтесь на мой YouTube-канал: [Visual PKM](${URLs.WWW_YOUTUBE_COM_VISUALPKM}).
+
+Спасибо и приятной работы!
+
+<div class="excalidraw-videoWrapper">
+<a href="${URLs.WWW_YOUTUBE_COM_WATCH}" target="_blank"><img src="${URLs.I_YTIMG_COM_VI_P_Q6AVJGOWI_MAXRESDEFAULT_JPG}" style="width:100%;"></a>
+</div>
+`,
 
   //ExcalidrawView.ts
   NO_SEARCH_RESULT: "Не удалось найти подходящий элемент на чертеже",
-  FORCE_SAVE_ABORTED: "Принудительное сохранение прервано, поскольку идет процесс сохранения",
+  FORCE_SAVE_ABORTED:
+    "Принудительное сохранение прервано, поскольку идет процесс сохранения",
+  DRAWING_RELOAD_FAILED:
+    "Excalidraw отклонил некорректные входящие данные рисунка. Открытый сейчас рисунок на холсте сохранён. Сохраните или экспортируйте его перед закрытием этого представления и проверьте синхронизированный файл или историю его версий.",
   LINKLIST_SECOND_ORDER_LINK: "Ссылка второго порядка",
-  MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT_TITLE: "Настройка ссылки на встроенный файл",
-  MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT: "Не добавляйте [[квадратные скобки]] вокруг имени файла! <br>" +
+  MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT_TITLE:
+    "Настройка ссылки на встроенный файл",
+  MARKDOWN_EMBED_CUSTOMIZE_LINK_PROMPT:
+    "Не добавляйте [[квадратные скобки]] вокруг имени файла! <br>" +
     "При редактировании ссылок на изображения в формате markdown-страниц следуйте этому формату: <mark>filename#^blockref|WIDTHxMAXHEIGHT</mark><br>" +
-    "Вы можете привязать изображения Excalidraw к 100% их размера, добавив  <code>|100%</code> в конец ссылки.<br>" +
+    "Вы можете привязать изображения Excalidraw к 100% их размера, добавив <code>|100%</code> в конец ссылки.<br>" +
     "Вы можете изменить страницу PDF, изменив <code>#page=1</code> на <code>#page=2</code> и т.д.<br>" +
     "Значения обрезки прямоугольника PDF: <code>left, bottom, right, top</code>. Например: <code>#rect=0,0,500,500</code><br>",
   FRAME_CLIPPING_ENABLED: "Рендеринг кадров: Включено",
   FRAME_CLIPPING_DISABLED: "Рендеринг кадров: Отключено",
-  ARROW_BINDING_INVERSE_MODE: "Инвертированный режим: Привязка стрелок по умолчанию теперь отключена. Используйте CTRL/CMD, чтобы временно включить привязку, когда это необходимо.",
-  ARROW_BINDING_NORMAL_MODE: "Обычный режим: Привязка стрелок теперь включена. Используйте CTRL/CMD, чтобы временно отключить привязку при необходимости.",
-  EXPORT_FILENAME_PROMPT: "Пожалуйста, укажите имя файла",
-  EXPORT_FILENAME_PROMPT_PLACEHOLDER: "имя файла, оставьте пустым, чтобы отменить действие",
-  WARNING_SERIOUS_ERROR: "ПРЕДУПРЕЖДЕНИЕ: Excalidraw столкнулся с неизвестной проблемой!\n\n" +
+  ARROW_BINDING_INVERSE_MODE:
+    "Инвертированный режим: Привязка стрелок по умолчанию теперь отключена. Используйте CTRL/CMD, чтобы временно включить привязку, когда это необходимо.",
+  ARROW_BINDING_NORMAL_MODE:
+    "Обычный режим: Привязка стрелок теперь включена. Используйте CTRL/CMD, чтобы временно отключить привязку при необходимости.",
+  WARNING_SERIOUS_ERROR:
+    "ПРЕДУПРЕЖДЕНИЕ: Excalidraw столкнулся с неизвестной проблемой!\n\n" +
     "Есть риск, что последние изменения не будут сохранены.\n\n" +
     "На всякий случай...\n" +
     "1) Выберите рисунок с помощью CTRL/CMD+A и создайте копию с помощью CTRL/CMD+C.\n" +
     "2) Затем создайте пустой чертеж в новой панели, нажав CTRL/CMD+кнопку ленты Excalidraw,\n" +
     "3) и вставьте свою работу в новый документ с помощью CTRL/CMD+V.",
-  ARIA_LABEL_TRAY_MODE: "Трей-Режим предлагает альтернативный, более просторный холст",
-  MASK_FILE_NOTICE: "Это файл маски. Он используется для кадрирования изображений и маскирования частей изображения. Нажмите и удерживайте уведомление, чтобы открытьe help video.",
+  ARIA_LABEL_TRAY_MODE:
+    "Трей-Режим предлагает альтернативный, более просторный холст",
+  MASK_FILE_NOTICE:
+    "Это файл маски. Он используется для кадрирования изображений и маскирования частей изображения. Нажмите и удерживайте уведомление, чтобы открытьe help video.",
   INSTALL_SCRIPT_BUTTON: "Установка или обновление скриптов Excalidraw",
   OPEN_AS_MD: "Открыть как Markdown",
   EXPORT_IMAGE: `Экспорт изображения`,
-  OPEN_LINK: "Открыть выделенный текст как ссылку\n(SHIFT+CLICK для открытия в новой панели)",
-  EXPORT_EXCALIDRAW: "Экспорт в файл .Excalidraw",
-  LINK_BUTTON_CLICK_NO_TEXT: "Выберите элемент, содержащий внутреннюю или внешнюю ссылку.\n",
+  OPEN_LINK:
+    "Открыть выделенный текст как ссылку\n(SHIFT+CLICK для открытия в новой панели)",
+  LINK_BUTTON_CLICK_NO_TEXT:
+    "Выберите элемент, содержащий внутреннюю или внешнюю ссылку.\n",
   LINEAR_ELEMENT_LINK_CLICK_ERROR:
-    "Ссылки на элементы со стрелками и линиями нельзя перемещать с помощью " + labelCTRL() + " + КЛИКА по элементу, поскольку при этом также активируется редактор строк.\n" +
-    "Чтобы открыть ссылку, воспользуйтесь контекстным меню правой кнопки мыши или щелкните индикатор ссылки в правом верхнем углу элемента.\n",
-  FILENAME_INVALID_CHARS: 'Имя файла не может содержать ни одного из следующих символов: * " \\ < > : | ? #',
+    `Ссылки на элементы со стрелками и линиями нельзя перемещать с помощью ${labelCTRL()} + КЛИКА по элементу, поскольку при этом также активируется редактор строк.\n` +
+    `Чтобы открыть ссылку, воспользуйтесь контекстным меню правой кнопки мыши или щелкните индикатор ссылки в правом верхнем углу элемента.\n`,
+  FILENAME_INVALID_CHARS:
+    'Имя файла не может содержать ни одного из следующих символов: * " \\ < > : | ? #',
   FORCE_SAVE: "Сохранить (также будут обновлены включения)",
   RAW: "Переход в режим PREVIEW (влияет только на текстовые элементы со ссылками или включениями)",
-  PARSED: "Переход в режим RAW (влияет только на текстовые элементы со ссылками или включениями)",
+  PARSED:
+    "Переход в режим RAW (влияет только на текстовые элементы со ссылками или включениями)",
   NOFILE: "Excalidraw (без файла)",
-  COMPATIBILITY_MODE: "Файл *.excalidraw открыт в режиме совместимости. Конвертируйте в новый формат для полной функциональности плагина.",
+  COMPATIBILITY_MODE:
+    "Файл *.excalidraw открыт в режиме совместимости. Конвертируйте в новый формат для полной функциональности плагина.",
   CONVERT_FILE: "Преобразование в новый формат",
-  BACKUP_AVAILABLE: "Мы столкнулись с ошибкой при загрузке вашего рисунка. Это могло произойти, если Obsidian неожиданно закрылся во время операции сохранения. Например, если вы случайно закрыли Obsidian на своем мобильном устройстве во время сохранения.<br><br><b>ХОРОШАЯ НОВОСТЬ:</b> К счастью, доступна локальная резервная копия. Однако учтите, что если вы последний раз изменяли этот рисунок на другом устройстве (например, на планшете), а сейчас находитесь на рабочем столе, то на другом устройстве, скорее всего, имеется более свежая резервная копия.<br><br>Я рекомендую сначала попробовать открыть рисунок на другом устройстве и восстановить резервную копию из его локального хранилища.<br><br>Хотите загрузить резервную копию?",
-  BACKUP_RESTORED: "Резервная копия восстановлена",
-  CACHE_NOT_READY: "Приношу извинения за неудобства, но при загрузке вашего файла произошла ошибка.<br><br><mark>Немного терпения может сэкономить вам массу времени...</mark><br><br>Плагин имеет резервный кэш, но похоже, что вы только что запустили Obsidian. Инициализация резервного кэша может занять некоторое время, обычно до минуты или больше, в зависимости от производительности вашего устройства. Вы получите уведомление в правом верхнем углу, когда инициализация кэша будет завершена.<br><br>Нажмите OK, чтобы попытаться загрузить файл снова и проверить, завершилась ли инициализация кэша. Если за этим сообщением вы видите абсолютно пустой файл, я рекомендую подождать, пока кэш резервного копирования будет готов, прежде чем продолжать. Кроме того, вы можете выбрать «Отмена», чтобы вручную исправить файл.<br>",
+  DRAWING_LOAD_ERROR_TITLE: "Не удалось загрузить рисунок: {filename}",
+  DRAWING_LOAD_ERROR_MESSAGE: "Этот файл не удалось загрузить как рисунок Excalidraw.",
+  DRAWING_LOAD_ERROR_NO_BACKUP: "На этом устройстве нет локальной резервной копии.",
+  DRAWING_LOAD_ERROR_CACHE_WAIT: "Кэш локальных резервных копий ещё загружается. Выберите OK, чтобы проверить снова, или Отмена, чтобы продолжить.",
+  DRAWING_LOAD_ERROR_BACKUP_AVAILABLE: "Доступна локальная резервная копия. Загрузить её?",
+  DRAWING_LOAD_ERROR_MORE_INFO: "Подробнее",
+  DRAWING_LOAD_ERROR_DISMISS: "Закрыть",
+  DRAWING_LOAD_ERROR_REPORTED_ERROR: "Сообщение об ошибке",
+  DRAWING_LOAD_ERROR_DETAILS: "Заметка со свойством excalidraw-plugin в метаданных frontmatter рассматривается как рисунок Excalidraw. Если раздел данных рисунка отсутствует или повреждён, рисунок невозможно загрузить. Обычная заметка Markdown может содержать это свойство по ошибке.\n\nКонфликт синхронизации или прерванное согласование данных между устройствами — одна из возможных причин повреждения JSON рисунка. Само сообщение об ошибке не устанавливает причину.\n\nЛокальная резервная копия может содержать читаемую предыдущую версию рисунка. Резервные копии хранятся отдельно на каждом устройстве, поэтому на устройстве, где вы редактировали рисунок в последний раз, может быть более свежая копия. Загрузка резервной копии заменяет файл рисунка. Это информационное окно не изменяет файл.",
+  BACKUP_AVAILABLE:
+    "Мы столкнулись с ошибкой при загрузке вашего рисунка. Это могло произойти, если Obsidian неожиданно закрылся во время операции сохранения. Например, если вы случайно закрыли Obsidian на своем мобильном устройстве во время сохранения.<br><br><b>ХОРОШАЯ НОВОСТЬ:</b> К счастью, доступна локальная резервная копия. Однако учтите, что если вы последний раз изменяли этот рисунок на другом устройстве (например, на планшете), а сейчас находитесь на рабочем столе, то на другом устройстве, скорее всего, имеется более свежая резервная копия.<br><br>Я рекомендую сначала попробовать открыть рисунок на другом устройстве и восстановить резервную копию из его локального хранилища.<br><br>Хотите загрузить резервную копию?",
+  CACHE_NOT_READY:
+    "Приношу извинения за неудобства, но при загрузке вашего файла произошла ошибка.<br><br><mark>Немного терпения может сэкономить вам массу времени...</mark><br><br>Плагин имеет резервный кэш, но похоже, что вы только что запустили Obsidian. Инициализация резервного кэша может занять некоторое время, обычно до минуты или больше, в зависимости от производительности вашего устройства. Вы получите уведомление в правом верхнем углу, когда инициализация кэша будет завершена.<br><br>Нажмите OK, чтобы попытаться загрузить файл снова и проверить, завершилась ли инициализация кэша. Если за этим сообщением вы видите абсолютно пустой файл, я рекомендую подождать, пока кэш резервного копирования будет готов, прежде чем продолжать. Кроме того, вы можете выбрать «Отмена», чтобы вручную исправить файл.<br>",
   OBSIDIAN_TOOLS_PANEL: "Панель инструментов Obsidian",
-  ERROR_SAVING_IMAGE: "При получении изображения произошла неизвестная ошибка. Возможно, по какой-то причине изображение недоступно или отклонен запрос на получение от Obsidian",
-  WARNING_PASTING_ELEMENT_AS_TEXT: "ВСТАВКА ЭЛЕМЕНТОВ EXCALIDRAW В КАЧЕСТВЕ ТЕКСТОВОГО ЭЛЕМЕНТА ЗАПРЕЩЕНА",
-  USE_INSERT_FILE_MODAL: "Используйте 'Вставить любой файл', чтобы вставить заметку в формате markdown",
-  RECURSIVE_INSERT_ERROR: "Нельзя рекурсивно вставлять часть изображения в одно и то же изображение, так как это приведет к созданию бесконечного цикла",
+  ERROR_SAVING_IMAGE:
+    "При получении изображения произошла неизвестная ошибка. Возможно, по какой-то причине изображение недоступно или отклонен запрос на получение от Obsidian",
+  WARNING_PASTING_ELEMENT_AS_TEXT:
+    "ВСТАВКА ЭЛЕМЕНТОВ EXCALIDRAW В КАЧЕСТВЕ ТЕКСТОВОГО ЭЛЕМЕНТА ЗАПРЕЩЕНА",
+  USE_INSERT_FILE_MODAL:
+    "Используйте 'Вставить любой файл', чтобы вставить заметку в формате markdown",
+  RECURSIVE_INSERT_ERROR:
+    "Нельзя рекурсивно вставлять часть изображения в одно и то же изображение, так как это приведет к созданию бесконечного цикла",
   CONVERT_TO_MARKDOWN: "Преобразовать в файл...",
   SELECT_TEXTELEMENT_ONLY: "Выбрать только текстовый элемент (не контейнер)",
   REMOVE_LINK: "Удалить ссылку на текстовый элемент",
-  LASER_ON: "Включить лазерный указатель",
-  LASER_OFF: "Отключить лазерный указатель",
   WELCOME_RANK_NEXT: "Больше рисунков до следующего ранга!",
   WELCOME_RANK_LEGENDARY: "Вы на вершине. Продолжайте быть легендарным!",
-  WELCOME_COMMAND_PALETTE: 'Введите «Excalidraw» в палитре коман',
+  WELCOME_COMMAND_PALETTE: "Введите «Excalidraw» в палитре коман",
   WELCOME_OBSIDIAN_MENU: "Изучите меню Обсидиана в правом верхнем углу",
   WELCOME_SCRIPT_LIBRARY: "Посетите библиотеку сценариев",
   WELCOME_HELP_MENU: "Найдите помощь в гамбургер-меню",
   WELCOME_YOUTUBE_ARIA: "Канал Visual PKM на YouTube",
   WELCOME_YOUTUBE_LINK: "Загляните на YouTube-канал Visual PKM.",
-  WELCOME_DISCORD_ARIA: "Присоединяйтесь к серверу Discord",
-  WELCOME_DISCORD_LINK: "Присоединяйтесь к серверу Discord",
+  WELCOME_SYM_ARIA: "Изучите Excalidraw, освойте PKM и вступите в Cообщество",
+  WELCOME_SYM_LINK: "Изучите Excalidraw, освойте PKM и вступите в Cообщество",
   WELCOME_TWITTER_ARIA: "Следите за мной в Twitter",
   WELCOME_TWITTER_LINK: "Следите за мной в Twitter",
-  WELCOME_LEARN_ARIA: "Изучение Visual PKM",
-  WELCOME_LEARN_LINK: "Запишитесь на семинар по визуальному мышлению",
   WELCOME_DONATE_ARIA: "Пожертвовать на поддержку Excalidraw-Obsidian",
-  WELCOME_DONATE_LINK: 'Скажите «Спасибо» и поддержите плагин.',
-  SAVE_IS_TAKING_LONG: "Сохранение предыдущего файла занимает много времени. Пожалуйста, подождите...",
-  SAVE_IS_TAKING_VERY_LONG: "Для повышения производительности рассмотрите возможность разделения больших рисунков на несколько файлов меньшего размера.",
+  WELCOME_DONATE_LINK: "Скажите «Спасибо» и поддержите плагин.",
+  SAVE_IS_TAKING_LONG:
+    "Сохранение предыдущего файла занимает много времени. Пожалуйста, подождите...",
+  SAVE_IS_TAKING_VERY_LONG:
+    "Для повышения производительности рассмотрите возможность разделения больших рисунков на несколько файлов меньшего размера.",
 
   //settings.ts
+  SETTINGS_TOOLBAR_COPY: "Копировать настройки",
+  SETTINGS_TOOLBAR_NOTEBOOKLM: "NotebookLM",
+  SETTINGS_TOOLBAR_BUGS: "Ошибки",
+  SETTINGS_TOOLBAR_WIKI: "Вики",
+  SETTINGS_TOOLBAR_YOUTUBE: "YouTube",
+  SETTINGS_TOOLBAR_LEARN: "Обучение",
+  SETTINGS_TOOLBAR_FOLLOW: "Twitter",
+  SETTINGS_TOOLBAR_READ: "Читать книгу",
+  SETTINGS_TOOLBAR_KOFI: "Ko-fi",
+  USE_DECLARATIVE_SETTINGS_NAME: "Использовать настройки с поиском",
+  USE_DECLARATIVE_SETTINGS_DESC:
+    "Использовать многостраничный интерфейс настроек Obsidian с поиском. Отключите, чтобы использовать прежнюю одностраничную страницу настроек Excalidraw. Требуется перезапуск Obsidian.",
   RELEASE_NOTES_NAME: "Отображение информации о выпуске после обновления",
   RELEASE_NOTES_DESC:
-    "<b><u>Переключатель ВКЛ:</u></b> Отображение информации о выпуске при каждом обновлении Excalidraw до новой версии.<br>" +
-    "<b><u>Переключатель ВЫКЛ:</u></b> Тихий режим. Вы все еще можете прочитать заметки о выпуске на <a href='https://github.com/zsviczian/obsidian-excalidraw-plugin/releases'>GitHub</a>.",
+    `<b><u>Переключатель ВКЛ:</u></b> Отображение информации о выпуске при каждом обновлении Excalidraw до новой версии.<br>` +
+    `<b><u>Переключатель ВЫКЛ:</u></b> Тихий режим. Вы все еще можете прочитать заметки о выпуске на <a href="${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_RELEASES}">GitHub</a>.`,
+  EXCALIDRAW_MASTERY_PROMO_ARIA: "Открыть Excalidraw Mastery",
+  EXCALIDRAW_MASTERY_PROMO_HTML: `<p><b>Потерялись в переключателях и меню?</b></p><p>Excalidraw - мощный инструмент Visual PKM, созданный для сложных рабочих процессов: <b>Visual-First Daily Notes</b>, глубокое <b>PDF-исследование</b>, <b>автоматизация</b>, <b>интеграция ИИ</b> и <b>визуальный Zettelkasten</b>. Но такая мощность неизбежно приносит и сложность.</p><p>Пропустите этап проб и ошибок. <a href="${URLs.COMMUNITY_SKETCH_YOUR_MIND_COM_EM}" target="_blank">👉 Присоединяйтесь к Excalidraw Mastery</a>, чтобы шаг за шагом освоить именно эти настройки. Уберите трение инструмента и развивайте свои знания вместе с поддерживающим сообществом визуально мыслящих людей!</p>`,
+  EXCALIDRAW_MASTERY_PROMO_SHOW: "Показать",
+  EXCALIDRAW_MASTERY_PROMO_HIDE: "Скрыть",
   NEWVERSION_NOTIFICATION_NAME: "Уведомление об обновлении плагина",
   NEWVERSION_NOTIFICATION_DESC:
-      "<b><u>Переключатель ВКЛ:</u></b> Показывайте уведомление о появлении новой версии плагина.<br>" +
-      "<b><u>Переключатель ВЫКЛ:</u></b> Тихий режим. Вам необходимо проверить обновления плагинов в разделе Community Plugins.",
-  
+    "<b><u>Переключатель ВКЛ:</u></b> Показывайте уведомление о появлении новой версии плагина.<br>" +
+    "<b><u>Переключатель ВЫКЛ:</u></b> Тихий режим. Вам необходимо проверить обновления плагинов в разделе Community Plugins.",
+
   BASIC_HEAD: "Основные",
+  BASIC_UPDATES_STARTUP_HEAD: "Обновления и запуск",
+  BASIC_UPDATES_STARTUP_DESC:
+    "Примечания к выпуску, проверка и уведомления об обновлениях, а также заставка при запуске.",
+  BASIC_FILES_FOLDERS_HEAD: "Файлы и папки",
+  BASIC_FILES_FOLDERS_DESC:
+    "Папки и пути по умолчанию для рисунков, обрезок, аннотаций, шаблонов и скриптов Excalidraw Automate.",
+  BASIC_STENCIL_LIBRARY_HEAD: "Библиотека элементов",
+  BASIC_STENCIL_LIBRARY_DESC:
+    "Выберите место хранения библиотеки элементов и настройте её папку в хранилище и локальный файл.",
   BASIC_DESC: `В настройках "Основные" можно настроить такие параметры, как отображение заметок о выпуске после обновлений, получение уведомлений об обновлении плагинов, установка местоположения по умолчанию для новых чертежей, указание папки Excalidraw для вставки чертежей в активные документы, определение файла шаблона Excalidraw и указание папки сценария Excalidraw Automate для управления сценариями автоматизации.`,
   FOLDER_NAME: "Папка Excalidraw",
-  FOLDER_DESC: "Место по умолчанию для новых чертежей. Если пусто, чертежи будут создаваться в корне хранилища.",
+  FOLDER_DESC:
+    "Место по умолчанию для новых чертежей. Если пусто, чертежи будут создаваться в корне хранилища.",
   CROP_PREFIX_NAME: "Префикс файла обрезки",
   CROP_PREFIX_DESC:
     "Первая часть имени файла для новых чертежей, созданных при обрезке изображения. " +
-    "Если пусто, то по умолчанию будет использоваться значение 'cropped_'.",  
+    "Если пусто, то по умолчанию будет использоваться значение 'cropped_'.",
   ANNOTATE_PREFIX_NAME: "Префикс файла аннотации",
   ANNOTATE_PREFIX_DESC:
     "Первая часть имени файла для новых чертежей, созданных при аннотировании изображения. " +
     "Если пусто, то по умолчанию будет использоваться 'annotated_'.",
   ANNOTATE_PRESERVE_SIZE_NAME: "Preserve image size when annotating",
-  ANNOTATE_PRESERVE_SIZE_DESC: "When annotating an image in markdown the replacment image link will include the width of the original image.",
+  ANNOTATE_PRESERVE_SIZE_DESC:
+    "When annotating an image in markdown the replacment image link will include the width of the original image.",
   CROP_FOLDER_NAME: "Папка с файлами обрезки",
-  CROP_FOLDER_DESC: "Место по умолчанию для новых чертежей, созданных при обрезке изображения. Если папка пуста, рисунки будут создаваться в соответствии с настройками вложений Хранилища.",
+  CROP_FOLDER_DESC:
+    "Место по умолчанию для новых чертежей, созданных при обрезке изображения. Если папка пуста, рисунки будут создаваться в соответствии с настройками вложений Хранилища.",
   ANNOTATE_FOLDER_NAME: "Папка с файлами аннотаций изображений",
-  ANNOTATE_FOLDER_DESC: "Место по умолчанию для новых рисунков, создаваемых при аннотировании изображения. Если пусто, рисунки будут создаваться в соответствии с настройками вложений Хранилища.",
-  FOLDER_EMBED_NAME: "Использовать папку Excalidraw при встраивании рисунка в активный документ",
+  ANNOTATE_FOLDER_DESC:
+    "Место по умолчанию для новых рисунков, создаваемых при аннотировании изображения. Если пусто, рисунки будут создаваться в соответствии с настройками вложений Хранилища.",
+  FOLDER_EMBED_NAME:
+    "Использовать папку Excalidraw при встраивании рисунка в активный документ",
   FOLDER_EMBED_DESC:
     "Определите, в какую папку поместить новый вставленный рисунок " +
     "при использовании действия палитры команд: 'Создать новый рисунок и вставить в активный документ'.<br>" +
@@ -203,46 +506,174 @@ export default {
     "горячие клавиши для ваших любимых скриптов, как и для любой другой команды Obsidian. " +
     "Эта папка может не быть корневой папкой вашего хранилища. ",
   AI_HEAD: "Настройки ИИ - Экспериментальные",
-  AI_DESC: `В настройках "ИИ" вы можете настроить параметры использования GPT API OpenAI. ` +
+  AI_DESC:
+    `В настройках "ИИ" вы можете настроить параметры использования GPT API OpenAI. ` +
     `Пока API OpenAI находится в бета-версии, его использование строго ограничено - поэтому мы требуем, чтобы вы использовали свой собственный ключ API. ` +
     `Вы можете создать аккаунт OpenAI, добавить небольшой кредит (минимум 5 долларов) и сгенерировать свой собственный ключ API. ` +
-    `После установки API-ключа вы сможете использовать инструменты искусственного интеллекта в Excalidraw.`,
-  AI_OPENAI_TOKEN_NAME: "Ключ API OpenAI",
-  AI_OPENAI_TOKEN_DESC: "Вы можете получить свой ключ API OpenAI из вашего <a href='https://platform.openai.com/api-keys'>OpenAI аккаунта</a>.",
-  AI_OPENAI_TOKEN_PLACEHOLDER: "Введите свой ключ API OpenAI здесь",
-  AI_OPENAI_DEFAULT_MODEL_NAME: "Модель ИИ по умолчанию",
-  AI_OPENAI_DEFAULT_MODEL_DESC:
-    "Модель ИИ по умолчанию, используемая при генерации текста. Это поле свободного текста, поэтому вы можете ввести любое действительное имя модели OpenAI. " +
-    "Узнайте больше о доступных моделях на <a href='https://platform.openai.com/docs/models'>OpenAI сайте</a>.",
-  AI_OPENAI_DEFAULT_MODEL_PLACEHOLDER: "Введите здесь модель искусственного интеллекта по умолчанию, например: gpt-3.5-turbo-1106.",
-  AI_OPENAI_DEFAULT_IMAGE_MODEL_NAME: "Модель ИИ для генерации изображений по умолчанию",
-  AI_OPENAI_DEFAULT_IMAGE_MODEL_DESC:
-    "Модель ИИ по умолчанию, используемая при генерации изображений. Редактирование и изменение изображений поддерживается OpenAI только в dall-e-2, " +
-    "поэтому dall-e-2 будет автоматически использоваться в таких случаях независимо от этой настройки.<br>" +
-    "Это поле свободного текста, поэтому вы можете ввести любое действительное имя модели OpenAI. " +
-    "Узнайте больше о доступных моделях на <a href='https://platform.openai.com/docs/models'>OpenAI сайте</a>.",
-  AI_OPENAI_DEFAULT_IMAGE_MODEL_PLACEHOLDER: "Введите здесь модель ИИ Image Generation по умолчанию, например: dall-e-3.",
-  AI_OPENAI_DEFAULT_VISION_MODEL_NAME: "Модель видения ИИ по умолчанию",
-  AI_OPENAI_DEFAULT_VISION_MODEL_DESC:
-    "Модель зрения ИИ по умолчанию, используемая при генерации текста из изображений. Это поле свободного текста, поэтому вы можете ввести любое действительное имя модели OpenAI. " +
-    "Узнайте больше о доступных моделях на <a href='https://platform.openai.com/docs/models'>OpenAI сайте</a>.",
-  AI_OPENAI_DEFAULT_API_URL_NAME: "URL-адрес API OpenAI",
-  AI_OPENAI_DEFAULT_API_URL_DESC:
-    "URL-адрес OpenAI API по умолчанию. Это поле свободного текста, поэтому вы можете ввести любой действительный URL, совместимый с OpenAI API. " +
-    "Excalidraw будет использовать этот URL при отправке API-запросов в OpenAI. Я не делаю никакой обработки ошибок в этом поле, поэтому убедитесь, что вы вводите правильный URL и изменяйте его только в том случае, если вы знаете, что делаете. ",
-  AI_OPENAI_DEFAULT_IMAGE_API_URL_NAME: "URL-адрес API генерации изображений OpenAI",
-  AI_OPENAI_DEFAULT_VISION_MODEL_PLACEHOLDER: "Введите здесь модель зрения ИИ по умолчанию. Например: gpt-4o",
+    `После установки API-ключа вы сможете использовать инструменты искусственного интеллекта в Excalidraw. ` +
+    `Эти параметры используются ExcalidrawAutomate, Mermaid chat и diagram-to-code. В большинстве случаев достаточно указать провайдера, API-ключ и модели по умолчанию. Переопределения конечных точек оставляйте пустыми, если ваш провайдер не требует собственных URL. Старые настройки ИИ, привязанные только к OpenAI, будут автоматически перенесены сюда при первом запуске.`,
+  AI_ENABLED_NAME: "Включить функции ИИ",
+  AI_ENABLED_DESC:
+    "Чтобы изменения вступили в силу, необходимо заново открыть Excalidraw.",
+  AI_VERBOSE_LOGGING_NAME: "Включить подробное логирование ИИ",
+  AI_VERBOSE_LOGGING_DESC:
+    "Выводит подробную диагностику AI-запросов и ответов в консоль разработчика. Оставляйте выключенным, если не занимаетесь отладкой.",
+  AI_PROVIDER_NAME: "Определить доступных провайдеров",
+  AI_PROVIDER_DESC:
+    "Определите профили провайдеров, доступные для списков моделей ниже. Текст, Vision и Image выбирают своего провайдера отдельно.",
+  AI_PROVIDER_PROFILE_ROW_DESC: "Тип: {{providerType}}<br>API: {{apiKey}}",
+  AI_PROVIDER_OPTION_OPENAI: "OpenAI",
+  AI_PROVIDER_OPTION_ANTHROPIC: "Anthropic / Claude",
+  AI_PROVIDER_OPTION_GOOGLE: "Google / Gemini",
+  AI_PROVIDER_OPTION_XAI: "xAI / Grok",
+  AI_PROVIDER_OPTION_OPENAI_COMPATIBLE: "Совместимый с OpenAI / локальный",
+  AI_PROVIDER_API_KEY_SET: "Настроено",
+  AI_PROVIDER_API_KEY_NOT_SET: "Не настроено",
+  AI_PROVIDER_EDIT: "Изменить провайдера",
+  AI_PROVIDER_ADD: "Добавить провайдера",
+  AI_PROVIDER_REMOVE: "Удалить провайдера",
+  AI_PROVIDER_RESTORE_DEFAULTS: "Восстановить провайдеров по умолчанию",
+  AI_PROVIDER_DEFAULT_TEXT_MODEL_NAME: "Текстовая и мультимодальная модель",
+  AI_PROVIDER_DEFAULT_TEXT_MODEL_DESC:
+    "Модель для текстового чата и запросов с изображениями, например Mermaid chat, diagram-to-code и анализа вайрфреймов.<br>Провайдер: {{provider}} ({{providerType}})<br>API key: {{apiKey}}<br>Имя модели: {{model}}<br>Endpoint: {{endpoint}}<br>Мультимодальная поддержка: {{multimodalSupport}}",
+  AI_PROVIDER_DEFAULT_IMAGE_MODEL_NAME: "Модель изображений",
+  AI_PROVIDER_DEFAULT_IMAGE_MODEL_DESC:
+    "Модель для генерации изображений, prompt-редактирования и редактирования с маской. Используйте кнопки редактирования, добавления и удаления, чтобы менять список.<br>Провайдер: {{provider}} ({{providerType}})<br>API key: {{apiKey}}<br>Имя модели: {{model}}<br>Поддерживаемые разрешения: {{sizes}}<br>Prompt-редактирование: {{supportsPromptImageTransforms}}<br>Редактирование с маской: {{supportsMaskImageEdits}}",
+  AI_MODEL_CONFIG_DERIVED_ENDPOINT: "Определяется выбранным провайдером",
+  AI_MODEL_EDIT: "Изменить модель",
+  AI_MODEL_ADD: "Добавить модель",
+  AI_MODEL_REMOVE: "Удалить модель",
+  AI_MODEL_RESTORE_DEFAULTS: "Восстановить модели по умолчанию",
+  AI_IMAGE_MODEL_CAPABILITIES_SIZES_NAME: "Поддерживаемые разрешения",
+  AI_IMAGE_MODEL_CAPABILITIES_SIZES_PLACEHOLDER:
+    "1024x1024, 1536x1024, 1024x1536",
+  AI_IMAGE_MODEL_CAPABILITIES_TRANSFORMS_NAME:
+    "Prompt-редактирование изображений",
+  AI_IMAGE_MODEL_CAPABILITIES_TRANSFORMS_DESC:
+    "Включите, если модель принимает входное изображение и текстовый prompt для редактирования без маски.",
+  AI_IMAGE_MODEL_CAPABILITIES_MASK_EDITS_NAME:
+    "Редактирование изображений с маской",
+  AI_IMAGE_MODEL_CAPABILITIES_MASK_EDITS_DESC:
+    "Включите, если модель умеет заменять выбранные области входного изображения с помощью маски.",
+  AI_IMAGE_MODEL_CAPABILITIES_EDITS_YES: "Да",
+  AI_IMAGE_MODEL_CAPABILITIES_EDITS_NO: "Нет",
+  AI_IMAGE_MODEL_CAPABILITY_MODAL_ADD_TITLE:
+    "Добавить запись модели изображений",
+  AI_IMAGE_MODEL_CAPABILITY_MODAL_EDIT_TITLE:
+    "Изменить запись модели изображений",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_MODEL_NAME: "ID модели",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_MODEL_DESC:
+    "Используйте точное имя модели, которое дает ваш провайдер.",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_MODEL_PLACEHOLDER: "например: gpt-image-2",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_SIZES_DESC:
+    "Добавляйте по одному поддерживаемому разрешению в строку.",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_SIZE_LABEL: "Разрешение",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_ADD_SIZE: "Добавить разрешение",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_REMOVE_SIZE: "Удалить",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_MODEL_REQUIRED: "Требуется ID модели.",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_SIZE_REQUIRED:
+    "Добавьте хотя бы одно поддерживаемое разрешение.",
+  AI_IMAGE_MODEL_CAPABILITIES_MODAL_DUPLICATE_MODEL:
+    "Запись модели с таким ID уже существует.",
+  AI_PROVIDER_PROFILE_MODAL_ADD_TITLE: "Добавить профиль провайдера",
+  AI_PROVIDER_PROFILE_MODAL_EDIT_TITLE: "Редактировать профиль провайдера",
+  AI_PROVIDER_PROFILE_MODAL_NAME_NAME: "Название профиля",
+  AI_PROVIDER_PROFILE_MODAL_NAME_DESC:
+    "Эта метка будет отображаться в списках выбора моделей.",
+  AI_PROVIDER_PROFILE_MODAL_NAME_PLACEHOLDER: "например: OpenAI",
+  AI_PROVIDER_PROFILE_MODAL_TYPE_NAME: "Тип провайдера",
+  AI_PROVIDER_PROFILE_MODAL_TYPE_DESC:
+    "Выберите семейство API, используемое этим профилем.",
+  AI_PROVIDER_PROFILE_MODAL_API_KEY_NAME: "API-ключ",
+  AI_PROVIDER_PROFILE_MODAL_API_KEY_DESC:
+    "Сохраняется в этом профиле и используется всеми назначенными ему моделями.",
+  AI_PROVIDER_PROFILE_MODAL_API_KEY_PLACEHOLDER: "API-ключ провайдера",
+  AI_PROVIDER_PROFILE_MODAL_BASE_URL_NAME: "Базовый URL",
+  AI_PROVIDER_PROFILE_MODAL_BASE_URL_DESC:
+    "Базовый адрес, используемый для формирования endpoints провайдера.",
+  AI_PROVIDER_PROFILE_MODAL_BASE_URL_PLACEHOLDER:
+    "например: https://api.openai.com/v1",
+  AI_PROVIDER_PROFILE_MODAL_OPENAI_COMPATIBLE_HINT:
+    "Для локальных OpenAI-совместимых LLM введите фиктивный ключ, если реальный не требуется, чтобы Excalidraw распознал профиль как настроенный.",
+  AI_PROVIDER_PROFILE_MODAL_NAME_REQUIRED:
+    "Имя профиля провайдера обязательно.",
+  AI_PROVIDER_PROFILE_MODAL_DUPLICATE_NAME:
+    "Профиль провайдера с таким именем уже существует.",
+  AI_MODEL_CONFIG_MODAL_NAME_NAME: "Название записи",
+  AI_MODEL_CONFIG_MODAL_NAME_DESC:
+    "Эта метка будет отображаться в выпадающем списке.",
+  AI_MODEL_CONFIG_MODAL_NAME_PLACEHOLDER: "например: gpt-5-mini",
+  AI_MODEL_CONFIG_MODAL_PROVIDER_NAME: "Провайдер",
+  AI_MODEL_CONFIG_MODAL_PROVIDER_DESC:
+    "Выберите профиль провайдера, который должна использовать эта модель.",
+  AI_MODEL_CONFIG_MODAL_MODEL_NAME: "Имя модели",
+  AI_MODEL_CONFIG_MODAL_MODEL_DESC: "Точное имя модели, отправляемое в API.",
+  AI_MODEL_CONFIG_MODAL_MODEL_PLACEHOLDER: "например: gpt-5-mini",
+  AI_MODEL_CONFIG_MODAL_ENDPOINT_NAME: "Переопределение endpoint",
+  AI_MODEL_CONFIG_MODAL_ENDPOINT_DESC:
+    "Необязательный полный адрес эндпоинта для этой модели. Оставьте пустым, чтобы использовать адрес из профиля.",
+  AI_MODEL_CONFIG_MODAL_ENDPOINT_PLACEHOLDER: "Полный путь (необязательно)",
+  AI_MODEL_CONFIG_MODAL_MULTIMODAL_NAME: "Мультимодальная поддержка",
+  AI_MODEL_CONFIG_MODAL_MULTIMODAL_DESC:
+    "Разрешает этой текстовой модели принимать изображения для анализа и задач в стиле diagram-to-code.",
+  AI_MODEL_CONFIG_MODAL_NAME_REQUIRED: "Название записи обязательно.",
+  AI_MODEL_CONFIG_MODAL_PROVIDER_REQUIRED: "Выберите профиль провайдера.",
+  AI_MODEL_CONFIG_MODAL_MODEL_REQUIRED: "Имя модели обязательно.",
+  AI_MODEL_CONFIG_MODAL_DUPLICATE_NAME:
+    "Запись модели с таким именем уже существует.",
+  AI_TEXT_MODEL_MODAL_ADD_TITLE: "Добавить текстовую модель",
+  AI_TEXT_MODEL_MODAL_EDIT_TITLE: "Редактировать текстовую модель",
+  AI_VISION_MODEL_MODAL_ADD_TITLE: "Добавить визуальную модель",
+  AI_VISION_MODEL_MODAL_EDIT_TITLE: "Редактировать визуальную модель",
+  AI_IMAGE_MODEL_MODAL_ADD_TITLE: "Добавить модель генерации изображений",
+  AI_IMAGE_MODEL_MODAL_EDIT_TITLE: "Редактировать модель генерации изображений",
+  AI_PROVIDER_DEFAULT_MAX_OUTGOING_TOKENS_NAME:
+    "Бюджет исходящих токенов ИИ по умолчанию",
+  AI_PROVIDER_DEFAULT_MAX_OUTGOING_TOKENS_DESC:
+    "Значение по умолчанию для AIRequest.maxOutgoingTokens. Это приблизительный бюджет для исходящего текста; Excalidraw сначала сокращает длинные подсказки и старую историю чата. Также влияет на текст, отправляемый вместе с image-запросами.",
+  AI_PROVIDER_DEFAULT_MAX_OUTGOING_TOKENS_PLACEHOLDER: "например: 8000",
+  AI_PROVIDER_DEFAULT_MAX_RESPONSE_TOKENS_NAME:
+    "Лимит токенов ответа ИИ по умолчанию",
+  AI_PROVIDER_DEFAULT_MAX_RESPONSE_TOKENS_DESC:
+    "Значение по умолчанию для AIRequest.maxTokens. Ограничивает текстовые и мультимодальные ответы модели. Не влияет на прямые endpoint'ы генерации и редактирования изображений.",
+  AI_PROVIDER_DEFAULT_MAX_RESPONSE_TOKENS_PLACEHOLDER: "например: 4096",
+  // AI Usage Metering - AIUsageModal
+  AI_USAGE_MODAL_TITLE: "Использование ИИ (текущая сессия)",
+  AI_USAGE_MODAL_TEXT_MODELS_HEADING: "Текстовые / мультимодальные модели",
+  AI_USAGE_MODAL_IMAGE_MODELS_HEADING: "Модели генерации изображений",
+  AI_USAGE_MODAL_TABLE_COL_MODEL: "Модель",
+  AI_USAGE_MODAL_TABLE_COL_INPUT: "Входящие токены",
+  AI_USAGE_MODAL_TABLE_COL_OUTPUT: "Исходящие токены",
+  AI_USAGE_MODAL_TABLE_COL_IMAGE_MODEL: "Модель",
+  AI_USAGE_MODAL_TABLE_COL_GENERATIONS: "Сгенерировано изображений",
+  AI_USAGE_MODAL_TABLE_TOTAL: "Итого",
+  AI_USAGE_MODAL_NO_USAGE: "В этой сессии запросы к ИИ не выполнялись.",
+  AI_USAGE_MODAL_SESSION_NOTE:
+    "Статистика накапливается только для текущей сессии Obsidian и не сохраняется между перезапусками.",
+  AI_USAGE_MODAL_COPY_MARKDOWN: "Копировать как Markdown",
+  AI_USAGE_MODAL_COPY_SUCCESS:
+    "Таблица использования скопирована в буфер обмена.",
+  AI_USAGE_MODAL_COPY_FAILURE: "Не удалось скопировать в буфер обмена.",
+  AI_USAGE_MODAL_TABLE_MARKDOWN_TITLE: "## Использование ИИ (текущая сессия)",
+  // AI Usage button - Settings
+  AI_USAGE_SETTINGS_BUTTON_NAME: "Использование токенов в сессии",
+  AI_USAGE_SETTINGS_BUTTON_DESC:
+    "Просмотр потребления токенов ИИ в текущей сессии Obsidian с разбивкой по моделям. Данные сбрасываются при перезапуске.",
   SAVING_HEAD: "Сохранение",
-  SAVING_DESC: "В разделе 'Сохранение' раздела Настройки Excalidraw вы можете настроить способ сохранения ваших чертежей. Сюда входят опции сжатия Excalidraw JSON в Markdown, установки интервалов автосохранения для настольных и мобильных компьютеров, определения форматов имен файлов, а также выбора расширения файла .excalidraw.md или .md. ",
+  SAVING_STORAGE_AUTOSAVE_HEAD: "Хранение и автосохранение",
+  SAVING_STORAGE_AUTOSAVE_DESC:
+    "Настройте сжатие JSON рисунков и интервалы автосохранения на компьютере и мобильных устройствах.",
+  SAVING_DESC:
+    "В разделе 'Сохранение' раздела Настройки Excalidraw вы можете настроить способ сохранения ваших чертежей. Сюда входят опции сжатия Excalidraw JSON в Markdown, установки интервалов автосохранения для настольных и мобильных компьютеров, определения форматов имен файлов, а также выбора расширения файла .excalidraw.md или .md. ",
   COMPRESS_NAME: "Сжатие Excalidraw JSON в формате Markdown",
   COMPRESS_DESC:
-    "При включении этой функции Excalidraw будет хранить JSON рисунка в формате Base64. " +
-    "формат с использованием алгоритма <a href='https://pieroxy.net/blog/pages/lz-string/index.html'>LZ-String</a>. " +
-    "Это уменьшит вероятность того, что Excalidraw JSON загромоздит результаты поиска в Obsidian. " +
-    "Как побочный эффект, это также уменьшит размер файлов чертежей Excalidraw. " +
-    "При переключении чертежа Excalidraw в режим Markdown с помощью меню опций Excalidraw файл будет " +
-    "сохранен без сжатия, чтобы вы могли читать и редактировать строку JSON. Чертеж будет снова сжат " +
-    "как только вы переключитесь обратно в вид Excalidraw. " +
+    `При включении этой функции Excalidraw будет хранить JSON рисунка в формате Base64. ` +
+    `формат с использованием алгоритма <a href="${URLs.PIEROXY_NET_BLOG_PAGES_LZ_STRING_INDEX_HTML}">LZ-String</a>. ` +
+    `Это уменьшит вероятность того, что Excalidraw JSON загромоздит результаты поиска в Obsidian. ` +
+    `Как побочный эффект, это также уменьшит размер файлов чертежей Excalidraw. ` +
+    `При переключении чертежа Excalidraw в режим Markdown с помощью меню опций Excalidraw файл будет ` +
+    `сохранен без сжатия, чтобы вы могли читать и редактировать строку JSON. Чертеж будет снова сжат ` +
+    `как только вы переключитесь обратно в вид Excalidraw. ` +
     "Настройка имеет силу только 'на перспективу', то есть существующие чертежи не будут затронуты настройкой " +
     "пока вы не откроете и не сохраните их.<br><b><u>Переключатель ВКЛ:</u></b> Сжать чертеж JSON<br><b><u>Переключатель ВЫКЛ:</u></b> Оставьте JSON для рисования без сжатия",
   DECOMPRESS_FOR_MD_NAME: "Декомпрессия Excalidraw JSON в Markdown Режим",
@@ -251,44 +682,57 @@ export default {
     "Это позволит вам легко читать и редактировать строку JSON. Чертеж будет снова сжат " +
     "как только вы переключитесь обратно в режим Excalidraw и сохраните чертеж (CTRL+S).<br>" +
     "Я рекомендую отключить эту функцию, так как это приведет к уменьшению размера файлов и избавит от ненужных результатов в поиске Obsidian. " +
-    "Вы всегда можете воспользоваться командой 'Excalidraw: Распаковать текущий файл Excalidraw' из палитры команд. "+
+    "Вы всегда можете воспользоваться командой 'Excalidraw: Распаковать текущий файл Excalidraw' из палитры команд. " +
     "чтобы вручную распаковывать JSON чертежа, когда вам нужно его прочитать или отредактировать.",
-  AUTOSAVE_INTERVAL_DESKTOP_NAME: "Интервал для автосохранения на рабочем столе",
+  AUTOSAVE_INTERVAL_DESKTOP_NAME:
+    "Интервал для автосохранения на рабочем столе",
   AUTOSAVE_INTERVAL_DESKTOP_DESC:
     "Интервал времени между сохранениями. Автосохранение будет пропущено, если в чертеже нет изменений. " +
     "Excalidraw также сохранит файл при закрытии вкладки рабочей области или при навигации в Obsidian, но вне активной вкладки Excalidraw (например, при нажатии на ленту Obsidian, проверке обратных ссылок и т. д.). " +
     "Excalidraw не сможет сохранить вашу работу при завершении работы Obsidian напрямую, либо убив процесс Obsidian, либо нажав кнопку закрытия Obsidian вообще.",
-  AUTOSAVE_INTERVAL_MOBILE_NAME: "Интервал для автосохранения на мобильном телефоне",
+  AUTOSAVE_INTERVAL_MOBILE_NAME:
+    "Интервал для автосохранения на мобильном телефоне",
   AUTOSAVE_INTERVAL_MOBILE_DESC:
     "Для мобильников я рекомендую более частый интервал. " +
     "Excalidraw также сохранит файл при закрытии вкладки рабочей области или при навигации в Obsidian, но вне активной вкладки Excalidraw (например, при нажатии на ленту Obsidian, проверке обратных ссылок и т. д.). " +
     "Excalidraw не сможет сохранить вашу работу при прямом завершении работы Obsidian (т.е. смахнув ее). Также обратите внимание, что при переключении приложений на мобильном устройстве, иногда Android и iOS закрываются " +
     "Obsidian в фоновом режиме для экономии системных ресурсов. В этом случае Excalidraw не сможет сохранить последние изменения.",
-FILENAME_HEAD: "Имя файла",
+  FILENAME_HEAD: "Имя файла",
+  FILENAME_GROUP_DESC:
+    "Настройте создание имён новых, встроенных, обрезанных и аннотированных рисунков.",
   FILENAME_DESC:
-    "<p>Нажмите на эту ссылку, чтобы получить <a href='https://momentjs.com/docs/#/displaying/format/'>" +
-    "справочник по формату даты и времени</a>.</p>",
+    `<p>Нажмите на эту ссылку, чтобы получить <a href="${URLs.MOMENTJS_COM_DOCS}">` +
+    `справочник по формату даты и времени</a>.</p>`,
   FILENAME_SAMPLE: "Filename for a new drawing is: ",
   FILENAME_EMBED_SAMPLE: "Имя файла для нового встроенного чертежа: ",
   FILENAME_PREFIX_NAME: "Префикс имени файла",
   FILENAME_PREFIX_DESC: "Первая часть имени файла",
-  FILENAME_PREFIX_EMBED_NAME: "Префикс имени файла при вставке нового чертежа в заметку в формате markdown",
+  FILENAME_PREFIX_EMBED_NAME:
+    "Префикс имени файла при вставке нового чертежа в заметку в формате markdown",
   FILENAME_PREFIX_EMBED_DESC:
     "Должно ли имя файла нового вставленного чертежа начинаться с имени активной заметки в формате markdown " +
     "при использовании действия палитры команд: <code>Создать новый чертеж и вставить его в активный документ</code>?<br>" +
     "<b><u>Переключатель ВКЛ:</u></b> Да, имя файла нового чертежа должно начинаться с имени файла активного документа<br><b><u>Переключатель ВЫКЛ:</u></b> Нет, имя файла нового чертежа не должно включать имя файла активного документа",
-  FILENAME_POSTFIX_NAME: "Пользовательский текст после имени заметки в формате markdown при вставке",
-  FILENAME_POSTFIX_DESC: "Влияет на имя файла только при вставке в документ markdown. Этот текст будет вставлен после имени заметки, но перед датой.",
+  FILENAME_POSTFIX_NAME:
+    "Пользовательский текст после имени заметки в формате markdown при вставке",
+  FILENAME_POSTFIX_DESC:
+    "Влияет на имя файла только при вставке в документ markdown. Этот текст будет вставлен после имени заметки, но перед датой.",
   FILENAME_DATE_NAME: "Дата имени файла",
-  FILENAME_DATE_DESC: "Последняя часть имени файла. Оставьте пустой, если дата не нужна.",
+  FILENAME_DATE_DESC:
+    "Последняя часть имени файла. Оставьте пустой, если дата не нужна.",
   FILENAME_EXCALIDRAW_EXTENSION_NAME: ".excalidraw.md или .md",
   FILENAME_EXCALIDRAW_EXTENSION_DESC:
     "Эта настройка не применяется, если вы используете Excalidraw в режиме совместимости, " +
     "т.е. вы не используете файлы разметки Excalidraw.<br><b><u>Переключатель ВКЛ:</u></b> Имя файла заканчивается на .excalidraw.md<br><b><u>Переключатель ВЫКЛ:</u></b> Имя файла заканчивается на .md",
   DISPLAY_HEAD: "Внешний вид и поведение Excalidraw",
-  DISPLAY_DESC: "В разделе 'Внешний вид и поведение' раздела Настройки Excalidraw вы можете настроить внешний вид и поведение Excalidraw. Сюда входят опции динамической стилизации, режима для левой руки, соответствия тем Excalidraw и Obsidian, режимов по умолчанию и многое другое.",
+  DISPLAY_DESC:
+    "В разделе 'Внешний вид и поведение' раздела Настройки Excalidraw вы можете настроить внешний вид и поведение Excalidraw. Сюда входят опции динамической стилизации, режима для левой руки, соответствия тем Excalidraw и Obsidian, режимов по умолчанию и многое другое.",
+  DISPLAY_EDITOR_PREVIEWS_HEAD: "Редактирование и предпросмотр",
+  DISPLAY_EDITOR_PREVIEWS_DESC:
+    "Настройте жесты редактирования холста и отображение файлов Excalidraw в режиме чтения и предпросмотре при наведении.",
   DYNAMICSTYLE_NAME: "Динамическая стилизация",
-  DYNAMICSTYLE_DESC: "Изменение цветов пользовательского интерфейса Excalidraw в соответствии с цветом холста",
+  DYNAMICSTYLE_DESC:
+    "Изменение цветов пользовательского интерфейса Excalidraw в соответствии с цветом холста",
   LEFTHANDED_MODE_NAME: "Левосторонний режим",
   LEFTHANDED_MODE_DESC:
     "В настоящее время действует только в трей режиме. Если включить этот режим, трей будет находиться с правой стороны." +
@@ -297,17 +741,19 @@ FILENAME_HEAD: "Имя файла",
   IFRAME_MATCH_THEME_DESC:
     "<b><u>Переключатель ВКЛ:</u></b> Установите значение true, если, например, вы используете Obsidian в темном режиме, но применяете excalidraw со светлым фоном. " +
     "С этой настройкой встроенный документ разметки Obsidian будет соответствовать теме Excalidraw (т.е. светлые цвета, если Excalidraw находится в светлом режиме).<br>" +
-    "<b><u>Переключатель ВЫКЛ:</u></b> Установите значение false, если хотите, чтобы встроенный в Obsidian документ разметки соответствовал теме Obsidian (т.е. темные цвета, если Obsidian находится в темном режиме).",    
+    "<b><u>Переключатель ВЫКЛ:</u></b> Установите значение false, если хотите, чтобы встроенный в Obsidian документ разметки соответствовал теме Obsidian (т.е. темные цвета, если Obsidian находится в темном режиме).",
   MATCH_THEME_NAME: "Новый чертеж в соответствии с темой Obsidian",
   MATCH_THEME_DESC:
     "Если тема темная, новый рисунок будет создан в темном режиме. Это не относится к случаям, когда вы используете шаблон для новых рисунков. " +
     "Также это не повлияет на открытие существующего чертежа. Они будут соответствовать теме шаблона/чертежа соответственно." +
     "<br><b><u>Переключатель ВКЛ:</u></b> Следуйте за Obsidian Theme<br><b><u>Переключатель ВЫКЛ:</u></b> Следовать теме, заданной в вашем шаблоне",
-  MATCH_THEME_ALWAYS_NAME: "Существующие чертежи должны соответствовать теме Obsidian",
+  MATCH_THEME_ALWAYS_NAME:
+    "Существующие чертежи должны соответствовать теме Obsidian",
   MATCH_THEME_ALWAYS_DESC:
     "Если тема темная, чертежи будут открываться в темном режиме. Если тема светлая, они будут открываться в светлом режиме. " +
     "<br><b><u>Переключатель ВКЛ:</u></b> Соответствовать теме Obsidian<br><b><u>Переключатель ВЫКЛ:</u></b> Открывать ту же тему, что и при последнем сохранении",
-  MATCH_THEME_TRIGGER_NAME: "Excalidraw будет следовать за изменениями Темы Obsidian",
+  MATCH_THEME_TRIGGER_NAME:
+    "Excalidraw будет следовать за изменениями Темы Obsidian",
   MATCH_THEME_TRIGGER_DESC:
     "Если эта опция включена, открытая панель Excalidraw будет переключаться в светлый/темный режим при смене темы Obsidian. " +
     "<br><b><u>Переключатель ВКЛ:</u></b> Следить за изменениями темы<br><b><u>Переключатель ВЫКЛ:</u></b> Чертежи не подвержены изменениям темы Obsidian",
@@ -316,93 +762,150 @@ FILENAME_HEAD: "Имя файла",
     "Указывает режим, в котором открывается Excalidraw: Обычный, Zen или режим просмотра. Вы также можете задать это поведение на уровне файла " +
     "добавив в документ ключ excalidraw-default-mode frontmatter со значением: normal, view или zen.",
   DEFAULT_PEN_MODE_NAME: "Режим пера",
-  DEFAULT_PEN_MODE_DESC: "Должен ли режим пера автоматически включаться при открытии Excalidraw?",
-  DISABLE_DOUBLE_TAP_ERASER_NAME: "Включение двойного нажатия ластика в режиме пера",
-  SHOW_PEN_MODE_FREEDRAW_CROSSHAIR_NAME: "Показать (+) перекрестие в режиме пера",
+  DEFAULT_PEN_MODE_DESC:
+    "Должен ли режим пера автоматически включаться при открытии Excalidraw?",
+  DISABLE_DOUBLE_TAP_ERASER_NAME:
+    "Включение двойного нажатия ластика в режиме пера",
+  SHOW_PEN_MODE_FREEDRAW_CROSSHAIR_NAME:
+    "Показать (+) перекрестие в режиме пера",
   SHOW_PEN_MODE_FREEDRAW_CROSSHAIR_DESC:
-    "Показывайте перекрестие в режиме пера при использовании инструмента freedraw. <b><u>Toggle Переключатель ВКЛ</u></b> Показывать <b><u>Toggle Переключатель ВЫКЛ</u></b> Скрывать<br>"+
+    "Показывайте перекрестие в режиме пера при использовании инструмента freedraw. <b><u>Toggle Переключатель ВКЛ</u></b> Показывать <b><u>Toggle Переключатель ВЫКЛ</u></b> Скрывать<br>" +
     "Эффект зависит от устройства. Перекрестие обычно видно на планшетах для рисования, MS Surface, но не на iOS.",
-  SHOW_DRAWING_OR_MD_IN_HOVER_PREVIEW_NAME: "Передача файла Excalidraw в виде изображения в предварительном просмотре при наведении...",
+  SHOW_DRAWING_OR_MD_IN_HOVER_PREVIEW_NAME:
+    "Передача файла Excalidraw в виде изображения в предварительном просмотре при наведении...",
   SHOW_DRAWING_OR_MD_IN_HOVER_PREVIEW_DESC:
     "...даже если файл имеет ключ <b>excalidraw-open-md: true</b> frontmatter.<br>" +
     "Если этот параметр выключен и файл по умолчанию открывается в формате md, при наведении на предварительный просмотр" +
     "будет показана часть документа, содержащая разметку.",
-  SHOW_DRAWING_OR_MD_IN_READING_MODE_NAME: "Рендеринг в виде изображения при чтении файла Excalidraw в режиме разметки",
+  SHOW_DRAWING_OR_MD_IN_READING_MODE_NAME:
+    "Рендеринг в виде изображения при чтении файла Excalidraw в режиме разметки",
   SHOW_DRAWING_OR_MD_IN_READING_MODE_DESC:
     "Когда вы находитесь в режиме чтения разметки (а именно, читаете обратную сторону рисунка), должен ли рисунок Excalidraw отображаться как изображение? " +
     "Этот параметр не влияет на отображение чертежа в режиме Excalidraw, а также при встраивании чертежа в документ с пометками или при предварительном просмотре при наведении.<br><ul>" +
-    "<li>Смотрите другие связанные настройки для <a href='#«+TAG_PDFEXPORT+»'>экспорта PDF</a> в разделе 'Встраивание и экспорт' ниже.</li></ul><br>" +
+    `<li>Смотрите другие связанные настройки для <a href='#${TAG_PDFEXPORT}'>экспорта PDF</a> в разделе 'Встраивание и экспорт' ниже.</li></ul><br>` +
     "Вы должны закрыть активный файл excalidraw/markdown и снова открыть его, чтобы это изменение вступило в силу.",
-  SHOW_DRAWING_OR_MD_IN_EXPORTPDF_NAME: "При экспорте файла Excalidraw в PDF файл отображается как изображение.",
+  SHOW_DRAWING_OR_MD_IN_EXPORTPDF_NAME:
+    "При экспорте файла Excalidraw в PDF файл отображается как изображение.",
   SHOW_DRAWING_OR_MD_IN_EXPORTPDF_DESC:
     "Этот параметр управляет поведением Excalidraw при экспорте файла Excalidraw в PDF в режиме просмотра разметки с помощью функции Obsidian <b>Экспорт в PDF</b> <br>" +
     "<ul><li>Если <b>разрешить</b>, в PDF будет отображаться только чертеж Excalidraw;</li>" +
     "<li>Если <b>заблокировать</b>, то в PDF будет отображаться разметка документа.</li></ul>" +
-    "См. другие связанные настройки для <a href='#«+TAG_MDREADINGMODE+»'>режима чтения разметки</a> в разделе 'Внешний вид и поведение' выше.<br>" +
+    `См. другие связанные настройки для <a href='#${TAG_MDREADINGMODE}'>режима чтения разметки</a> в разделе 'Внешний вид и поведение' выше.<br>` +
     "⚠️ Обратите внимание, что необходимо закрыть активный файл excalidraw/markdown и открыть его снова, чтобы изменения вступили в силу. ⚠️",
+  MODES_HEAD: "Режимы интерфейса",
+  MODES_DESC:
+    "Выберите интерфейс Excalidraw для каждого устройства, кнопки заголовка и расположение панели для правой или левой руки.",
   HOTKEY_OVERRIDE_HEAD: "Переопределение горячих клавиш",
-  HOTKEY_OVERRIDE_DESC: `Некоторые горячие клавиши Excalidraw, такие как <code>${labelCTRL()}+Enter</code> для редактирования текста или <code>${labelCTRL()}+K</code> создания ссылки на элемент ` +
+  HOTKEY_OVERRIDE_GROUP_DESC:
+    "Управляйте сочетаниями Excalidraw, которые должны иметь приоритет над конфликтующими горячими клавишами Obsidian.",
+  HOTKEY_OVERRIDE_CONTROL_NAME: "Управление переопределениями клавиш",
+  HOTKEY_OVERRIDE_DESC:
+    `Некоторые горячие клавиши Excalidraw, такие как <code>${labelCTRL()}+Enter</code> для редактирования текста или <code>${labelCTRL()}+K</code> создания ссылки на элемент ` +
     "конфликтуют с настройками горячих клавиш Obsidian. Комбинации горячих клавиш, которые вы добавите ниже, отменят настройки горячих клавиш Obsidian при использовании Excalidraw, таким образом " +
     `Вы можете добавить <code>${labelCTRL()}+G</code>, если хотите по умолчанию перейти к Группе Объектов в Excalidraw вместо открытия Режима просмотра Графиков.`,
   THEME_HEAD: "Тема и стиль",
-  ZOOM_HEAD: "Масштабирование",
+  THEME_DESC:
+    "Настройте стиль интерфейса, темы рисунков и вставок, режим открытия и безопасные отступы на мобильных устройствах.",
+  ZOOM_AND_PAN_HEAD: "Масштаб и панорамирование",
+  ZOOM_AND_PAN_DESC:
+    "Настройте поведение мыши, сенсорного ввода, открытия, изменения размера и диапазона масштаба.",
   DEFAULT_PINCHZOOM_NAME: "Разрешить масштабирование в режиме пера",
   DEFAULT_PINCHZOOM_DESC:
     "По умолчанию зуммирование в режиме пера при использовании инструмента «Свободное рисование» отключено, чтобы предотвратить нежелательное случайное масштабирование с помощью ладони.<br>" +
     "<b><u>Переключатель ВКЛ:</u></b>Включение щипкового масштабирования в режиме пера<br><b><u>Переключатель ВЫКЛ:</u></b>Выключение щипкового масштабирования в режиме пера",
 
-  DEFAULT_WHEELZOOM_NAME: "Колесо мыши для масштабирования по умолчанию",
+  DEFAULT_WHEELZOOM_NAME: "Инвертировать настройку масштабирования колёсиком",
   DEFAULT_WHEELZOOM_DESC:
-    `<b><u>Переключатель ВКЛ:</u></b> Колесо мыши для масштабирования; ${labelCTRL()} + Колесо мыши для прокрутки</br><b><u>Переключатель ВЫКЛ:</u></b>${labelCTRL()} + Колесико мыши для масштабирования; Колесико мыши для прокрутки`,
-    
+    "Применяется ко всем рисункам и инвертирует настройку <b>Устройство ввода</b> в рисунке (масштабирование или прокрутка колёсиком мыши). Настройка рисунка действует только для текущего рисунка и может быть сохранена в шаблоне.",
+
   ZOOM_TO_FIT_NAME: "Изменение масштаба при изменении размера просмотра",
-  ZOOM_TO_FIT_DESC: "Изменение масштаба чертежа при изменении размера панели" +
+  ZOOM_TO_FIT_DESC:
+    "Изменение масштаба чертежа при изменении размера панели" +
     "<br><b><u>Переключатель ВКЛ:</u></b> Увеличить масштаб<br><b><u>Переключатель ВЫКЛ:</u></b> Автоматическое масштабирование отключено",
   ZOOM_TO_FIT_ONOPEN_NAME: "Увеличение масштаба при открытии файла",
-  ZOOM_TO_FIT_ONOPEN_DESC: "Изменение масштаба чертежа при его первом открытии" +
-      "<br><b><u>Переключатель ВКЛ:</u></b> Увеличить масштаб<br><b><u>Переключатель ВЫКЛ:</u></b> Автоматическое масштабирование отключено",  
-  ZOOM_TO_FIT_MAX_LEVEL_NAME: "Увеличение до максимального уровня масштабирования",
-  ZOOM_TO_FIT_MAX_LEVEL_DESC: "Установите максимальный уровень, до которого масштабирование будет увеличивать чертеж. Минимальное значение - 0,5 (50 %), максимальное - 10 (1000 %).",
+  ZOOM_TO_FIT_ONOPEN_DESC:
+    "Изменение масштаба чертежа при его первом открытии" +
+    "<br><b><u>Переключатель ВКЛ:</u></b> Увеличить масштаб<br><b><u>Переключатель ВЫКЛ:</u></b> Автоматическое масштабирование отключено",
+  ZOOM_TO_FIT_MAX_LEVEL_NAME:
+    "Увеличение до максимального уровня масштабирования",
+  ZOOM_TO_FIT_MAX_LEVEL_DESC:
+    "Установите максимальный уровень, до которого масштабирование будет увеличивать чертеж. Минимальное значение - 0,5 (50 %), максимальное - 10 (1000 %).",
+  PEN_HEAD: "Перо",
+  PEN_DESC:
+    "Настройте автоматический режим пера, сенсорные жесты, ластик и перекрестие свободного рисования.",
   GRID_HEAD: "Сетка",
+  GRID_DESC:
+    "Настройте направление сетки, автоматический или пользовательский цвет и прозрачность.",
   GRID_DYNAMIC_COLOR_NAME: "Динамический цвет сетки",
-  GRID_DYNAMIC_COLOR_DESC: "<b><u>Переключатель ВКЛ:</u></b>Измените цвет сетки, чтобы он соответствовал цвету холста<br><b><u>Переключатель ВЫКЛ:</u></b>Используйте цвет, указанный ниже, в качестве цвета сетки",
+  GRID_DYNAMIC_COLOR_DESC:
+    "<b><u>Переключатель ВКЛ:</u></b>Измените цвет сетки, чтобы он соответствовал цвету холста<br><b><u>Переключатель ВЫКЛ:</u></b>Используйте цвет, указанный ниже, в качестве цвета сетки",
   GRID_COLOR_NAME: "Цвет сетки",
   GRID_OPACITY_NAME: "Прозрачность сетки",
-  GRID_OPACITY_DESC: "Прозрачность сетки также будет управлять прозрачностью поля привязки при привязке стрелки к элементу.<br>" +
+  GRID_OPACITY_DESC:
+    "Прозрачность сетки также будет управлять прозрачностью поля привязки при привязке стрелки к элементу.<br>" +
     "Установите прозрачность сетки. 0 - прозрачная, 100 - непрозрачная.",
   LASER_HEAD: "Лазерный указатель",
+  LASER_DESC:
+    "Настройте цвет лазерного указателя, скорость и длину затухания его следа.",
   LASER_COLOR: "Цвет лазерного указателя",
   LASER_DECAY_TIME_NAME: "Время затухания лазерного указателя",
-  LASER_DECAY_TIME_DESC: "Время затухания лазерного указателя в миллисекундах. По умолчанию - 1000 (т. е. 1 секунда).",
+  LASER_DECAY_TIME_DESC:
+    "Время затухания лазерного указателя в миллисекундах. По умолчанию - 1000 (т. е. 1 секунда).",
   LASER_DECAY_LENGTH_NAME: "Длительность затухания лазерного указателя.",
-  LASER_DECAY_LENGTH_DESC: "Длина затухания лазерного указателя в точках линии. По умолчанию 50.",
+  LASER_DECAY_LENGTH_DESC:
+    "Длина затухания лазерного указателя в точках линии. По умолчанию 50.",
   LINKS_HEAD: "Ссылки, включение и задачи TODO",
-  LINKS_HEAD_DESC: "В разделе 'Ссылки, включения и TODO' раздела Настройки Excalidraw вы можете настроить, как Excalidraw обрабатывает ссылки, включения и элементы TODO. Сюда входят опции для открытия ссылок, управления панелями, отображения ссылок со скобками, настройки префиксов ссылок, обработки элементов TODO и т. д. ",
+  LINKS_HEAD_DESC:
+    "В разделе 'Ссылки, включения и TODO' раздела Настройки Excalidraw вы можете настроить, как Excalidraw обрабатывает ссылки, включения и элементы TODO. Сюда входят опции для открытия ссылок, управления панелями, отображения ссылок со скобками, настройки префиксов ссылок, обработки элементов TODO и т. д. ",
   LINKS_DESC:
     `${labelCTRL()}+КЛИКНИТЕ на <code>[[Text Elements]]</code> чтобы открыть их как ссылки. ` +
     "Если выделенный текст имеет более одного <code>[[valid Obsidian links]]</code>, только первый будет открыт. " +
-    "Если текст начинается как правильная веб-ссылка (то есть <code>https://</code> или <code>http://</code>), потом " +
+    "Если текст начинается как правильная веб-ссылка (то есть <code>http" +
+    "s://</code> или <code>http://</code>), потом " +
     "плагин откроет его в браузере. " +
     "Когда файлы Obsidian изменяются, соответствующие <code>[[link]]</code> в ваших чертежах также изменится. " +
     "Если вы не хотите, чтобы текст случайно менялся в ваших чертежах, используйте <code>[[links|with aliases]]</code>.",
   DRAG_MODIFIER_NAME: "Щелкните ссылку и перетащите клавиши-модификаторы",
-  DRAG_MODIFIER_DESC: "Поведение клавиши-модификатора при нажатии на ссылки и перетаскивании элементов. " +
-    "Excalidraw не будет проверять вашу конфигурацию... обратите внимание, чтобы избежать конфликтов настроек. " +
-    "Эти настройки отличаются для Apple и не-Apple. Если вы используете Obsidian на нескольких платформах, вам нужно будет сделать настройки отдельно. "+
-    "Переключатели расположены в порядке" +
-    (DEVICE.isIOS || DEVICE.isMacOS ? "SHIFT, CMD, OPT, CONTROL." : "SHIFT, CTRL, ALT, META (Клавишы Windows)."),
+  DRAG_MODIFIER_GROUP_DESC:
+    "Настройте жесты открытия ссылок и платформенные сочетания модификаторов для щелчков и перетаскивания.",
+  LINK_OPENING_GESTURES_HEAD: "Жесты открытия ссылок",
+  LINK_OPENING_GESTURES_DESC:
+    "Настройте задержку долгого нажатия и открытие ссылок двойным щелчком во встроенных рисунках и режиме просмотра.",
+  WEB_BROWSER_DRAG_ACTION_DESC:
+    "Выберите модификаторы для ссылок, изображений, импорта и вставок, перетаскиваемых из веб-браузера.",
+  LOCAL_FILE_DRAG_ACTION_DESC:
+    "Выберите модификаторы для ссылок, изображений, импорта и вставок, перетаскиваемых из операционной системы.",
+  INTERNAL_DRAG_ACTION_DESC:
+    "Выберите модификаторы для ссылок, изображений, полноразмерных изображений и вставок внутри Obsidian.",
+  PANE_TARGET_DESC:
+    "Выберите сочетания модификаторов, определяющие место открытия ссылок.",
+  MODIFIER_KEY_USAGE_NAME: "Настройка клавиш-модификаторов",
+  MODIFIER_KEY_COMBINATIONS: "Сочетания модификаторов",
+  DRAG_MODIFIER_DESC:
+    `Поведение клавиши-модификатора при нажатии на ссылки и перетаскивании элементов. ` +
+    `Excalidraw не будет проверять вашу конфигурацию... обратите внимание, чтобы избежать конфликтов настроек. ` +
+    `Эти настройки отличаются для Apple и не-Apple. Если вы используете Obsidian на нескольких платформах, вам нужно будет сделать настройки отдельно. ` +
+    `Переключатели расположены в порядке${
+      DEVICE.isIOS || DEVICE.isMacOS
+        ? "SHIFT, CMD, OPT, CONTROL."
+        : "SHIFT, CTRL, ALT, META (Клавишы Windows)."
+    }`,
   LONG_PRESS_DESKTOP_NAME: "Длительное нажатие открывает рабочий стол",
-  LONG_PRESS_DESKTOP_DESC: "Задержка нажатия в миллисекундах для открытия чертежа Excalidraw, встроенного в файл Markdown.",
+  LONG_PRESS_DESKTOP_DESC:
+    "Задержка нажатия в миллисекундах для открытия чертежа Excalidraw, встроенного в файл Markdown.",
   LONG_PRESS_MOBILE_NAME: "Длительное нажатие открывает мобильную версию",
-  LONG_PRESS_MOBILE_DESC: "Задержка нажатия в миллисекундах для открытия чертежа Excalidraw, встроенного в файл Markdown.",
+  LONG_PRESS_MOBILE_DESC:
+    "Задержка нажатия в миллисекундах для открытия чертежа Excalidraw, встроенного в файл Markdown.",
 
   FOCUS_ON_EXISTING_TAB_NAME: "Фокус на существующей вкладке",
-  FOCUS_ON_EXISTING_TAB_DESC: "При открытии ссылки Excalidraw будет фокусироваться на существующей вкладке, если файл уже открыт. " +
+  FOCUS_ON_EXISTING_TAB_DESC:
+    "При открытии ссылки Excalidraw будет фокусироваться на существующей вкладке, если файл уже открыт. " +
     "Включение этого параметра отменяет 'Повторное использование соседней панели', если файл уже открыт.",
   SECOND_ORDER_LINKS_NAME: "Показать ссылки второго порядка",
-  SECOND_ORDER_LINKS_DESC: "Показывать ссылки при нажатии на ссылку в Excalidraw. Ссылки второго порядка - это обратные ссылки, указывающие на ссылку, по которой переходят. " +
+  SECOND_ORDER_LINKS_DESC:
+    "Показывать ссылки при нажатии на ссылку в Excalidraw. Ссылки второго порядка - это обратные ссылки, указывающие на ссылку, по которой переходят. " +
     "При использовании значков изображений для соединения похожих заметок ссылки второго порядка позволяют перейти к связанным заметкам одним щелчком мыши, а не двумя. " +
-    "Для понимания смотрите <a href='https://youtube.com/shorts/O_1ls9c6wBY?feature=share'>YT Short</a>.",
+    `Для понимания смотрите <a href="${URLs.YOUTUBE_COM_SHORTS_O_1LS9C6WBY}">YT Short</a>.`,
   ADJACENT_PANE_NAME: "Повторное использование соседней панели",
   ADJACENT_PANE_DESC:
     `Когда ${labelCTRL()}+${labelALT()} нажимает на ссылку в Excalidraw, по умолчанию плагин открывает ссылку в новой панели. ` +
@@ -412,7 +915,7 @@ FILENAME_HEAD: "Имя файла",
   MAINWORKSPACE_PANE_NAME: "Открыть в основном рабочем пространстве",
   MAINWORKSPACE_PANE_DESC:
     `Когда ${labelCTRL()}+${labelALT()} нажимает на ссылку в Excalidraw, по умолчанию плагин открывает ссылку в новой панели в текущем активном окне. ` +
-    "Если включить этот параметр, Excalidraw откроет ссылку в существующей или новой панели в основном рабочем пространстве. ",  
+    "Если включить этот параметр, Excalidraw откроет ссылку в существующей или новой панели в основном рабочем пространстве. ",
   LINK_BRACKETS_NAME: "Показать <code>[[brackets]]</code> вокруг ссылок",
   LINK_BRACKETS_DESC: `${
     "В режиме ПРЕДВАРИТЕЛЬНОГО ПРОСМОТРА при разборе элементов текста ставьте скобки вокруг ссылок. " +
@@ -429,7 +932,8 @@ FILENAME_HEAD: "Имя файла",
     "Вы можете переопределить эту настройку для конкретного чертежа, добавив <code>"
   }${FRONTMATTER_KEYS["url-prefix"].name}: "🌐 "</code> в frontmatter файла.`,
   PARSE_TODO_NAME: "Парсинг TODO",
-  PARSE_TODO_DESC: "Преобразуйте '- [ ] ' и '- [x] ' в чекбокс и поставьте галочку.",
+  PARSE_TODO_DESC:
+    "Преобразуйте '- [ ] ' и '- [x] ' в чекбокс и поставьте галочку.",
   TODO_NAME: "Открыть иконку TODO",
   TODO_DESC: "Иконка для открытых пунктов TODO",
   DONE_NAME: "Иконка завершенного TODO",
@@ -440,12 +944,14 @@ FILENAME_HEAD: "Имя файла",
     "В Excalidraw <u>нормальный режим</u>, предварительный просмотр будет показан сразу только при наведении на синий значок ссылки в правом верхнем углу элемента.<br> " +
     `<b><u>Переключатель ВЫКЛ:</u></b> Предварительный просмотр при наведении отображается только в том случае, если при наведении на ссылку вы удерживаете клавишу ${labelCTRL()}.`,
   LINKOPACITY_NAME: "Прозрачность значка ссылки",
-  LINKOPACITY_DESC: "Прозрачность значка индикатора ссылки в правом верхнем углу элемента. 1 - непрозрачный, 0 - прозрачный.",
+  LINKOPACITY_DESC:
+    "Прозрачность значка индикатора ссылки в правом верхнем углу элемента. 1 - непрозрачный, 0 - прозрачный.",
   LINK_CTRL_CLICK_NAME: `${labelCTRL()}+КЛИК на текст с [[links]] или [](links), чтобы открыть их`,
   LINK_CTRL_CLICK_DESC:
     "Вы можете отключить эту функцию, если она мешает работе стандартных функций Excalidraw, которые вы хотите использовать. " +
     `Если эта функция отключена, для открытия ссылок можно использовать либо ${labelCTRL()} + ${labelMETA()}, либо индикатор ссылок в правом верхнем углу элемента.`,
-  TRANSCLUSION_WRAP_NAME: "Поведение переноса при переполненнии включенного текста",
+  TRANSCLUSION_WRAP_NAME:
+    "Поведение переноса при переполненнии включенного текста",
   TRANSCLUSION_WRAP_DESC:
     "Число задает количество символов, через которое должен быть перенесен текст. " +
     "Устанавливает поведение переноса текста. Включите этот параметр, чтобы принудительно перенести " +
@@ -455,51 +961,87 @@ FILENAME_HEAD: "Имя файла",
     "Вы можете вручную задать/переопределить длину переноса слов, используя формат `![[page#^block]]{NUMBER}`. " +
     "Обычно вам не нужно устанавливать значение по умолчанию, поскольку если вы вставите текст внутрь стикера, то Excalidraw автоматически позаботится о переносе слов. " +
     "Установите это значение на '0', если вы не хотите устанавливать значение по умолчанию. ",
-  PAGE_TRANSCLUSION_CHARCOUNT_NAME: "Максимальное количество символов при включении страниц (трансклюзии)",
+  PAGE_TRANSCLUSION_CHARCOUNT_NAME:
+    "Максимальное количество символов при включении страниц (трансклюзии)",
   PAGE_TRANSCLUSION_CHARCOUNT_DESC:
     "Максимальное количество символов, отображаемых на странице при включении всей страницы" +
     "в формате ![[markdown page]].",
-  QUOTE_TRANSCLUSION_REMOVE_NAME: "Включение (Трансклюзия) цитат: удалите ведущие '> ' из каждой строки",
-  QUOTE_TRANSCLUSION_REMOVE_DESC: "Удалите начальный '>' из каждой строки включения. Это улучшит читаемость цитат в текстовых включениях <br>" +
+  QUOTE_TRANSCLUSION_REMOVE_NAME:
+    "Включение (Трансклюзия) цитат: удалите ведущие '> ' из каждой строки",
+  QUOTE_TRANSCLUSION_REMOVE_DESC:
+    "Удалите начальный '>' из каждой строки включения. Это улучшит читаемость цитат в текстовых включениях <br>" +
     "<b><u>Переключатель ВКЛ:</u></b> Удалить ведущие '> '<br><b><u>Переключатель ВЫКЛ:</u></b> Не удалить ведущие '> ' (обратите внимание, что он все равно будет удален из первой строки из-за функциональности API Obsidian.)",
-  GET_URL_TITLE_NAME: "Используйте iframely для преобразования заголовка страницы",
+  GET_URL_TITLE_NAME:
+    "Используйте oEmbed для преобразования заголовка страницы",
   GET_URL_TITLE_DESC:
-    "Используйте <code>http://iframely.server.crestify.com/iframely?url=</code> для получения заголовка страницы при переходе по ссылке в Excalidraw",
+    "Используйте <code>http" +
+    "s://noembed" +
+    ".com/embed?url=</code> для получения заголовка страницы при переходе по HTTPS-ссылке в Excalidraw",
+  LINK_BEHAVIOR_HEAD: "Поведение ссылок",
+  LINK_BEHAVIOR_DESC:
+    "Настройте синхронизацию ссылок, связанные ссылки, предпросмотр, щелчки и получение заголовков веб-страниц.",
+  LINK_USAGE_NAME: "Использование ссылок в Excalidraw",
+  LINK_OPENING_HEAD: "Поведение панелей и вкладок",
+  LINK_OPENING_DESC:
+    "Выберите, будут ли ссылки повторно использовать, фокусировать или переключать панели, вкладки и главное рабочее пространство.",
+  LINK_APPEARANCE_HEAD: "Внешний вид ссылок",
+  LINK_APPEARANCE_DESC:
+    "Настройте скобки, префиксы, значки и прозрачность отображаемых ссылок.",
+  TODO_HEAD: "Задачи TODO",
+  TODO_GROUP_DESC:
+    "Настройте распознавание TODO и значки открытых и завершенных задач.",
+  TRANSCLUSION_HEAD: "Текстовые включения",
+  TRANSCLUSION_DESC:
+    "Настройте ограничения символов, перенос строк и очистку цитат для включенного текста Markdown.",
   PDF_TO_IMAGE: "PDF в изображение",
   PDF_TO_IMAGE_SCALE_NAME: "Шкала преобразования PDF в изображения",
-  PDF_TO_IMAGE_SCALE_DESC: "Устанавливает разрешение изображения, которое генерируется из PDF-страницы. Более высокое разрешение приведет к увеличению размера изображений в памяти и, как следствие, к увеличению нагрузки на систему (замедлению производительности), но при этом изображение будет более четким. " +
+  PDF_TO_IMAGE_SCALE_DESC:
+    "Устанавливает разрешение изображения, которое генерируется из PDF-страницы. Более высокое разрешение приведет к увеличению размера изображений в памяти и, как следствие, к увеличению нагрузки на систему (замедлению производительности), но при этом изображение будет более четким. " +
     "Кроме того, если вы хотите скопировать страницы PDF (как изображения) на Excalidraw.com, больший размер изображения может привести к превышению лимита в 2 МБ на Excalidraw.com.",
   EMBED_TOEXCALIDRAW_HEAD: "Встраивание файлов в Excalidraw",
-  EMBED_TOEXCALIDRAW_DESC: "В разделе Встраивание файлов раздела Настройки Excalidraw вы можете настроить, как различные файлы будут встраиваться в Excalidraw. Сюда входят опции для встраивания интерактивных файлов разметки (Markdown), PDF-файлов и файлов разметки (Markdown) в виде изображений.",
+  EMBED_TOEXCALIDRAW_DESC:
+    "В разделе Встраивание файлов раздела Настройки Excalidraw вы можете настроить, как различные файлы будут встраиваться в Excalidraw. Сюда входят опции для встраивания интерактивных файлов разметки (Markdown), PDF-файлов и файлов разметки (Markdown) в виде изображений.",
   MD_HEAD: "Встраивать разметку в Excalidraw в виде изображения",
+  MD_GROUP_DESC:
+    "Настройте размеры, шрифт, цвета, границы и CSS для файлов Markdown, отображаемых как изображения.",
   MD_EMBED_CUSTOMDATA_HEAD_NAME: "Интерактивные файлы Markdown",
+  MD_EMBED_CUSTOMDATA_GROUP_DESC:
+    "Настройте редактирование и внешний вид по умолчанию для будущих интерактивных вставок Markdown.",
+  MD_EMBED_DEFAULTS_CONTROL_NAME:
+    "Внешний вид интерактивного Markdown по умолчанию",
   MD_EMBED_CUSTOMDATA_HEAD_DESC: `Приведенные ниже настройки будут влиять только на будущие вставки. Текущие вставки остаются неизменными. Настройки темы для встроенных фреймов находятся в разделе "Внешний вид и поведение Excalidraw".`,
-  MD_EMBED_SINGLECLICK_EDIT_NAME: "Редактирование встроенной разметки (Markdown) одним щелчком мыши",
+  MD_EMBED_SINGLECLICK_EDIT_NAME:
+    "Редактирование встроенной разметки (Markdown) одним щелчком мыши",
   MD_EMBED_SINGLECLICK_EDIT_DESC:
     "Однократный щелчок на встроенном файле разметки (Markdown) для его редактирования. " +
     "Если отключить эту функцию, файл с пометками сначала откроется в режиме предварительного просмотра, а затем переключится в режим редактирования, когда вы снова нажмете на него.",
-  MD_TRANSCLUDE_WIDTH_NAME: "Ширина по умолчанию для включенного документа с разметкой",
+  MD_TRANSCLUDE_WIDTH_NAME:
+    "Ширина по умолчанию для включенного документа с разметкой",
   MD_TRANSCLUDE_WIDTH_DESC:
     "Ширина страницы разметки (Markdown). Это влияет на обертку слов при встраивание длинных абзацев, а также на ширину элемента изображения " +
     " Вы можете изменить ширину встроенного файла по умолчанию, " +
     "используя синтаксис <code>[[filename#heading|WIDTHxMAXHEIGHT]]</code> в режиме просмотра markdown в разделе встроенных файлов.",
-  MD_TRANSCLUDE_HEIGHT_NAME: "Максимальная высота по умолчанию для документа с пометкой встраиваемый",
+  MD_TRANSCLUDE_HEIGHT_NAME:
+    "Максимальная высота по умолчанию для документа с пометкой встраиваемый",
   MD_TRANSCLUDE_HEIGHT_DESC:
     "Встроенное изображение будет настолько высоким, насколько этого требует текст разметки (Markdown), но не выше этого значения. " +
     "Вы можете переопределить это значение, отредактировав ссылку на встроенное изображение в режиме просмотра markdown со следующим синтаксисом <code>[[filename#^blockref|WIDTHxMAXHEIGHT]]</code>.",
-  MD_DEFAULT_FONT_NAME: "Шрифт по умолчанию, используемый для встроенных файлов разметки (Markdown).",
+  MD_DEFAULT_FONT_NAME:
+    "Шрифт по умолчанию, используемый для встроенных файлов разметки (Markdown).",
   MD_DEFAULT_FONT_DESC:
     'Установите это значение на "Virgil" или "Cascadia" или на имя файла <code>.ttf</code>, <code>.woff</code>, или <code>.woff2</code> шрифта, например. <code>MyFont.woff2</code> ' +
     "Вы можете отменить эту настройку, добавив следующий frontmatter-ключ во встроенный файл разметки (markdown): <code>excalidraw-font: font_or_filename</code>",
-  MD_DEFAULT_COLOR_NAME: "Цвет шрифта по умолчанию, используемый для встроенных файлов разметки (markdown).",
+  MD_DEFAULT_COLOR_NAME:
+    "Цвет шрифта по умолчанию, используемый для встроенных файлов разметки (markdown).",
   MD_DEFAULT_COLOR_DESC:
-    'Установите это значение в любое допустимое имя цвета css, например, "steelblue" (<a href="https://www.w3schools.com/colors/colors_names.asp">имена цветов</a>), или допустимый шестнадцатеричный цвет, например "#e67700", ' +
-    "или на любую другую допустимую строку цвета css. Вы можете отменить эту настройку, добавив следующий frontmatter-ключ во встроенный файл разметки (markdown): <code>excalidraw-font-color: steelblue</code>",
-  MD_DEFAULT_BORDER_COLOR_NAME: "Цвет границы, используемый по умолчанию для встроенных файлов разметки (markdown).",
+    `Установите это значение в любое допустимое имя цвета css, например, "steelblue" (<a href="${URLs.WWW_W3SCHOOLS_COM_COLORS_COLORS_NAMES_ASP}">имена цветов</a>), или допустимый шестнадцатеричный цвет, например "#e67700", ` +
+    `или на любую другую допустимую строку цвета css. Вы можете отменить эту настройку, добавив следующий frontmatter-ключ во встроенный файл разметки (markdown): <code>excalidraw-font-color: steelblue</code>`,
+  MD_DEFAULT_BORDER_COLOR_NAME:
+    "Цвет границы, используемый по умолчанию для встроенных файлов разметки (markdown).",
   MD_DEFAULT_BORDER_COLOR_DESC:
-    'Установите это значение на любое допустимое имя цвета css, например "steelblue" (<a href="https://www.w3schools.com/colors/colors_names.asp">имена цветов</a>),  или на допустимый шестнадцатеричный цвет, например "#e67700", ' +
-    "или на любую другую допустимую строку цвета css. Вы можете отменить эту настройку, добавив следующий frontmatter-key во встроенный файл разметки (markdown): <code>excalidraw-border-color: gray</code>. " +
-    "Оставьте пустым, если вам не нужна граница. ",
+    `Установите это значение на любое допустимое имя цвета css, например "steelblue" (<a href="${URLs.WWW_W3SCHOOLS_COM_COLORS_COLORS_NAMES_ASP}">имена цветов</a>), или на допустимый шестнадцатеричный цвет, например "#e67700", ` +
+    `или на любую другую допустимую строку цвета css. Вы можете отменить эту настройку, добавив следующий frontmatter-key во встроенный файл разметки (markdown): <code>excalidraw-border-color: gray</code>. ` +
+    `Оставьте пустым, если вам не нужна граница. `,
   MD_CSS_NAME: "CSS файл",
   MD_CSS_DESC:
     "Имя файла CSS для применения к вставкам markdown. Укажите имя файла с расширением (например, 'md-embed.css'). Файл css также может быть обычным файлом " +
@@ -512,72 +1054,102 @@ FILENAME_HEAD: "Имя файла",
   EMBED_HEAD: "Встраивание Excalidraw в заметки и экспорт",
   EMBED_DESC: `В настройках "Вставка и экспорт" можно настроить вставку и экспорт изображений и рисунков Excalidraw в документы. Основные настройки включают выбор типа изображения для предварительного просмотра в формате разметки (например, Native SVG или PNG), указание типа файла для вставки в документ (оригинальный Excalidraw, PNG или SVG) и управление кэшированием изображений для вставки в разметку. Вы также можете управлять размерами изображений, вставлять рисунки с помощью ссылок на вики или ссылок на разметку, а также настраивать темы изображений, цвета фона и интеграцию с Obsidian. 
     Кроме того, есть настройки автоэкспорта, который автоматически генерирует файлы SVG и/или PNG, соответствующие названию ваших рисунков Excalidraw, сохраняя их синхронизацию при переименовании и удалении файлов.`,
+  EMBED_PREVIEW_LINKS_HEAD: "Предпросмотр, ссылки и Canvas",
+  EMBED_PREVIEW_LINKS_DESC:
+    "Выберите форматы предпросмотра и вставляемых файлов, поведение исходных ссылок, заполнители и иммерсивные вставки Canvas.",
   EMBED_CANVAS: "Поддержка Obsidian Canvas",
   EMBED_CANVAS_NAME: "Иммерсивное встраивание",
-  EMBED_CANVAS_DESC: 
+  EMBED_CANVAS_DESC:
     "Скрывайте границы и фон узлов холста при встраивании чертежа Excalidraw в холст. " +
     "Обратите внимание, что для создания полностью прозрачного фона изображения вам все равно придется настроить Excalidraw на экспорт изображений с прозрачным фоном.",
   EMBED_CACHING: "Кэширование изображений",
+  EMBED_CACHING_DESC:
+    "Настройте параллельный рендеринг и локальные кэши, очищайте изображения или резервные копии и повторно используйте экспортированные предпросмотры.",
+  IMAGE_CACHE_RETENTION_DAYS_NAME: "Срок хранения локального кэша изображений",
+  IMAGE_CACHE_RETENTION_DAYS_DESC:
+    "Определяет, сколько дней Excalidraw должен хранить локально закэшированные отрендеренные ресурсы, такие как вложенные изображения Excalidraw и страницы PDF, прежде чем неиспользуемые записи кэша будут удалены. " +
+    "При чтении из кэша срок хранения элемента обновляется.<br><br>" +
+    "Это влияет только на локальный кэш Excalidraw на текущем устройстве. Это <b>не</b> меняет размер вашего Vault, вложений или объём синхронизации. " +
+    "Практически это влияет только на локальное использование диска или браузерного хранилища внутри Obsidian. Это может быть особенно заметно на телефонах и на настольных системах с более жёсткими лимитами браузерного хранилища или ограниченным свободным местом на диске.<br><br>" +
+    "Меньшие значения быстрее освобождают локальное место, но могут приводить к более частому повторному рендерингу PDF и встроенных рисунков. Большие значения ускоряют повторные загрузки ценой большего локального кэша.",
   EXPORT_SUBHEAD: "Настройки экспорта",
+  EXPORT_SUBHEAD_DESC:
+    "Настройте рендеринг PDF, данные экспортируемой сцены, размеры, тему и фон, параметры PDF по умолчанию и автоматические копии PNG/SVG.",
   EMBED_SIZING: "Размер изображения",
+  EMBED_SIZING_DESC:
+    "Задайте размеры встроенных изображений по умолчанию, масштаб PNG и отступ экспорта.",
   EMBED_THEME_BACKGROUND: "Тема изображения и цвет фона",
+  EMBED_THEME_BACKGROUND_DESC:
+    "Выберите фон и тему экспортируемых изображений, а также следование предпросмотра теме Obsidian.",
   EMBED_IMAGE_CACHE_NAME: "Кэширование изображений для вставки в markdown",
-  EMBED_IMAGE_CACHE_DESC: "Кэшируйте изображения для вставки в markdown. Это ускорит процесс встраивания, но в случае, если вы составите изображения из нескольких чертежей-субкомпонентов, " +
-    "встроенное изображение в Markdown не будет обновляться, пока вы не откроете рисунок и не сохраните его, чтобы вызвать обновление кэша.",
+  EMBED_IMAGE_CACHE_DESC:
+    "Кэшируйте изображения для вставки в Markdown. Кэшированные рисунки обновляются при изменении рисунка или одного из его вложенных файлов в хранилище.",
   SCENE_IMAGE_CACHE_NAME: "Кэширование вложенных Excalidraws в Cцене",
-  SCENE_IMAGE_CACHE_DESC: "Кэшируйте вложенные Excalidraws в сцене для ускорения рендеринга сцены. Это ускорит процесс рендеринга, особенно если в сцене есть глубоко вложенные Excalidraw. " + 
-    "Excalidraw попытается интеллектуально определить, изменились ли дочерние элементы вложенного Excalidraw, и соответствующим образом обновит кэш. " +
+  SCENE_IMAGE_CACHE_DESC:
+    "Кэшируйте вложенные Excalidraws в сцене для ускорения рендеринга сцены. Это ускорит процесс рендеринга, особенно если в сцене есть глубоко вложенные Excalidraw. " +
+    "Excalidraw будет определять изменения во вложенных рисунках и их источниках-файлах в хранилище и соответственно обновлять кэш. " +
     "Вы можете отключить эту функцию, если у вас есть подозрения, что кэш обновляется неправильно.",
   EMBED_IMAGE_CACHE_CLEAR: "Очистка кэша",
+  REFRESH_SCENE_IMAGES:
+    "Обновить выбранное изображение или все изображения в текущем рисунке",
   BACKUP_CACHE_CLEAR: "Очистка резервных копий",
-  BACKUP_CACHE_CLEAR_CONFIRMATION: "Это действие удалит все резервные копии чертежей Excalidraw. Резервные копии используются в качестве меры безопасности на случай повреждения файла рисунка. Каждый раз, когда вы открываете Obsidian, плагин автоматически удаляет резервные копии файлов, которые больше не существуют в вашем хранилище. Вы уверены, что хотите удалить все резервные копии?",
-  EMBED_REUSE_EXPORTED_IMAGE_NAME: "Если найдено, используйте уже экспортированное изображение для предварительного просмотра",
+  BACKUP_CACHE_CLEAR_CONFIRMATION:
+    "Это действие удалит все резервные копии чертежей Excalidraw. Резервные копии используются в качестве меры безопасности на случай повреждения файла рисунка. Каждый раз, когда вы открываете Obsidian, плагин автоматически удаляет резервные копии файлов, которые больше не существуют в вашем хранилище. Вы уверены, что хотите удалить все резервные копии?",
+  EMBED_REUSE_EXPORTED_IMAGE_NAME:
+    "Если найдено, используйте уже экспортированное изображение для предварительного просмотра",
   EMBED_REUSE_EXPORTED_IMAGE_DESC:
-    "Эта настройка работает в сочетании с настройкой <a href='#«+TAG_AUTOEXPORT+»'>Автоэкспорт SVG/PNG</a>. Если имеется экспортированное изображение, соответствующее имени файла чертежа, используйте это изображение вместо того, " +
+    `Эта настройка работает в сочетании с настройкой <a href='#${TAG_AUTOEXPORT}'>Автоэкспорт SVG/PNG</a>. Если имеется экспортированное изображение, соответствующее имени файла чертежа, используйте это изображение вместо того, ` +
     "чтобы генерировать изображение предварительного просмотра на лету. Однако это позволит ускорить предварительный просмотр, особенно если в чертеже много встроенных объектов, " +
     "может случиться так, что последние изменения не будут отображаться, а изображение не будет автоматически соответствовать вашей теме Obsidian, " +
     "если вы изменили тему Obsidian с момента создания экспорта. Эта настройка применяется только для вставки изображений в документы markdown. " +
-    "По ряду причин этот же подход не может быть использован для ускорения загрузки чертежей с большим количеством встроенных объектов. Смотрите демонстрацию <a href='https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/tag/1.6.23' target='_blank'>здесь</a>.",
-  /*EMBED_PREVIEW_SVG_NAME: "Отображение SVG в предварительном просмотре разметки (markdown)",
-  EMBED_PREVIEW_SVG_DESC:
-    "<b><u>Переключатель ВКЛ:</u></b> Вставьте рисунок как изображение <a href='https://en.wikipedia.org/wiki/Scalable_Vector_Graphics' target='_blank'>SVG</a> в предварительный просмотр разметки (markdown).<br>" +
-    "<b><u>Переключатель ВЫКЛ:</u></b> Встроить рисунок как изображение <a href='' target='_blank'>PNG</a>. Обратите внимание, что некоторые из <a href='https://www.youtube.com/watch?v=yZQoJg2RCKI&t=633s' target='_blank'>функций ссылок на блоки изображений</a> не работают с встраиванием PNG.",*/
-  EMBED_PREVIEW_IMAGETYPE_NAME: "Тип изображения в предварительном просмотре разметки (markdown)",
+    `По ряду причин этот же подход не может быть использован для ускорения загрузки чертежей с большим количеством встроенных объектов. Смотрите демонстрацию <a href="${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_RELEASES_TAG}/1.6.23" target='_blank'>здесь</a>.`,
+  EMBED_PREVIEW_IMAGETYPE_NAME:
+    "Тип изображения в предварительном просмотре разметки (markdown)",
   EMBED_PREVIEW_IMAGETYPE_DESC:
-    "<b><u>Родной SVG</u></b>: Высокое качество изображения. Встраиваемые веб-сайты, видео с YouTube, ссылки на Obsidian и внешние изображения, вставленные через URL-адрес, будут работать. Встроенные страницы Obsidian не будут<br>" +
-    "<b><u>SVG-изображение</u></b>: Высокое качество изображений. Встроенные элементы и изображения, вставленные по URL, имеют только заполнители, ссылки не работают<br>" +
-    "<b><u>PNG-изображение</u></b>: Более низкое качество изображения, но в некоторых случаях лучшая производительность при работе с большими рисунками. Встроенные элементы и изображения, вставленные по URL, имеют только заполнители, ссылки не работают. Также некоторые функции <a href='https://www.youtube.com/watch?v=yZQoJg2RCKI&t=633s' target='_blank'>ссылки на блок изображений</a> не работают с PNG-вставками.", 
-  PREVIEW_MATCH_OBSIDIAN_NAME: "Предварительный просмотр Excalidraw в соответствии с темой Obsidian",
+    `<b><u>Родной SVG</u></b>: Высокое качество изображения. Встраиваемые веб-сайты, видео с YouTube, ссылки на Obsidian и внешние изображения, вставленные через URL-адрес, будут работать. Встроенные страницы Obsidian не будут<br>` +
+    `<b><u>SVG-изображение</u></b>: Высокое качество изображений. Встроенные элементы и изображения, вставленные по URL, имеют только заполнители, ссылки не работают<br>` +
+    `<b><u>PNG-изображение</u></b>: Более низкое качество изображения, но в некоторых случаях лучшая производительность при работе с большими рисунками. Встроенные элементы и изображения, вставленные по URL, имеют только заполнители, ссылки не работают. Также некоторые функции <a href="${URLs.WWW_YOUTUBE_COM_WATCH_1}" target='_blank'>ссылки на блок изображений</a> не работают с PNG-вставками.`,
+  PREVIEW_MATCH_OBSIDIAN_NAME:
+    "Предварительный просмотр Excalidraw в соответствии с темой Obsidian",
   PREVIEW_MATCH_OBSIDIAN_DESC:
     "Предварительный просмотр изображений в документах должен соответствовать теме Obsidian. Если эта функция включена, то когда Obsidian находится в темном режиме, изображения Excalidraw будут отображаться в темном режиме. " +
     "Когда Obsidian находится в режиме освещения, Excalidraw также будет рендерить в режиме освещения. Вы можете отключить функцию 'Экспортировать изображение с фоном', чтобы получить более интегрированный в Obsidian вид и ощущение.",
-  EMBED_WIDTH_NAME: "Ширина по умолчанию для встроенного ('включенного') изображения",
+  EMBED_WIDTH_NAME:
+    "Ширина по умолчанию для встроенного ('включенного') изображения",
   EMBED_WIDTH_DESC:
     "Ширина по умолчанию для встроенного рисунка. Это относится к режиму редактирования и чтения, а также к предварительным просмотрам при наведении. При вставке изображения можно указать его " +
     "ширину используя <code>![[drawing.excalidraw|100]]</code> или " +
     "<code>[[drawing.excalidraw|100x100]]</code> формат.",
-  EMBED_HEIGHT_NAME: "Высота по умолчанию для встроенного ('включенного') изображения",
+  EMBED_HEIGHT_NAME:
+    "Высота по умолчанию для встроенного ('включенного') изображения",
   EMBED_HEIGHT_DESC:
     "Высота по умолчанию для встроенного рисунка. Это относится к режиму редактирования и чтения, а также к предварительным просмотрам при наведении. При вставке изображения можно указать его " +
     "высоту используя <code>![[drawing.excalidraw|100]]</code> или " +
     "<code>[[drawing.excalidraw|100x100]]</code> формат.",
   EMBED_TYPE_NAME: "Тип файла для вставки в документ",
   EMBED_TYPE_DESC:
-    "Когда вы вставляете изображение в документ с помощью командной палитры, этот параметр определяет, должен ли Excalidraw вставлять оригинальный файл Excalidraw " +
-    "или копию PNG или SVG. Чтобы эти типы изображений были доступны в раскрывающемся списке, их необходимо включить <a href='#"+TAG_AUTOEXPORT+"'>auto-export PNG / SVG</a> (см. ниже в разделе 'Настройки экспорта'). Для чертежей, не имеющих соответствующего PNG или " +
-    "SVG, действие из палитры команд вставит неработающую ссылку. Необходимо открыть исходный чертеж и инициировать экспорт вручную. " +
-    "Эта опция не будет автоматически генерировать файлы PNG/SVG, а просто будет ссылаться на уже существующие файлы.",
+    `Когда вы вставляете изображение в документ с помощью командной палитры, этот параметр определяет, должен ли Excalidraw вставлять оригинальный файл Excalidraw ` +
+    `или копию PNG или SVG. Чтобы эти типы изображений были доступны в раскрывающемся списке, их необходимо включить <a href='#${
+      TAG_AUTOEXPORT
+    }'>auto-export PNG / SVG</a> (см. ниже в разделе 'Настройки экспорта'). Для чертежей, не имеющих соответствующего PNG или ` +
+    `SVG, действие из палитры команд вставит неработающую ссылку. Необходимо открыть исходный чертеж и инициировать экспорт вручную. ` +
+    `Эта опция не будет автоматически генерировать файлы PNG/SVG, а просто будет ссылаться на уже существующие файлы.`,
   EMBED_MARKDOWN_COMMENT_NAME: "Вставить ссылку на чертеж как комментари",
-  EMBED_MARKDOWN_COMMENT_DESC: 
+  EMBED_MARKDOWN_COMMENT_DESC:
     "Вставьте ссылку на исходный файл Excalidraw в виде ссылки в формате markdown под изображением, например: <code>%%[[drawing.excalidraw]]%%</code>.<br>" +
     "Вместо добавления комментария можно также выделить встроенную строку SVG или PNG и использовать действие из палитры команд: " +
     "'<code>Excalidraw: Open Excalidraw drawing</code>' чтобы открыть чертеж.",
   EMBED_WIKILINK_NAME: "Встраивание рисунка с помощью ссылки Wiki",
-  EMBED_WIKILINK_DESC: "<b><u>Переключатель ВКЛ:</u></b> Excalidraw будет встраивать [[wiki link]].<br><b><u>Переключатель ВЫКЛ:</u></b> Excalidraw будет встраивать [markdown](link).",
+  EMBED_WIKILINK_DESC:
+    "<b><u>Переключатель ВКЛ:</u></b> Excalidraw будет встраивать [[wiki link]].<br><b><u>Переключатель ВЫКЛ:</u></b> Excalidraw будет встраивать [markdown](link).",
+  EMBED_PLACEHOLDER_NAME: "Встраивать изображение-заглушку",
+  EMBED_PLACEHOLDER_DESC:
+    "Если включено, встраивает изображение-заглушку при отсутствии рисунка. Если отключено, изображение не встраивается.",
   EXPORT_PNG_SCALE_NAME: "Масштаб экспортируемого изображения PNG",
   EXPORT_PNG_SCALE_DESC: "Масштаб экспортируемого PNG-изображения",
   EXPORT_BACKGROUND_NAME: "Экспорт изображения с фоном",
-  EXPORT_BACKGROUND_DESC: "Если отключить эту функцию, экспортируемое изображение будет прозрачным.",
+  EXPORT_BACKGROUND_DESC:
+    "Если отключить эту функцию, экспортируемое изображение будет прозрачным.",
   EXPORT_PADDING_NAME: "Отступы изображений",
   EXPORT_PADDING_DESC:
     "Размер (в пикселях) вокруг экспортируемого изображения SVG или PNG. Для ссылок на clippedFrame значение Отступов равно 0." +
@@ -589,10 +1161,23 @@ FILENAME_HEAD: "Имя файла",
     "рисунки, созданные в темном режиме, будут отображаться так же, как и в светлом режиме. ",
   EXPORT_EMBED_SCENE_NAME: "Встроить сцену в экспортированное изображение",
   EXPORT_EMBED_SCENE_DESC:
-    "Вставка сцены Excalidraw в экспортируемое изображение. Можно переопределить на уровне файла, добавив ключ frontmatter. <code>excalidraw-export-embed-scene: true/false<code>. " +
+    "Вставка сцены Excalidraw в экспортируемое изображение. Можно переопределить на уровне файла, добавив ключ frontmatter. <code>excalidraw-export-embed-scene: true/false</code>. " +
     "Настройка вступит в силу только при следующем (повторном) открытии чертежей.",
+  PDF_EXPORT_SETTINGS: "Настройки экспорта PDF",
+  PDF_EXPORT_SETTINGS_DESC:
+    "Выберите размер страницы PDF, ориентацию, разбиение, поля, цвет бумаги и выравнивание по умолчанию.",
+  PDF_EXPORT_DEFAULTS_CONTROL_NAME: "Макет экспорта PDF по умолчанию",
   EXPORT_HEAD: "Настройки автоэкспорта",
-  EXPORT_SYNC_NAME: "Поддерживайте синхронизацию имен файлов .SVG и/или .PNG с файлом чертежа",
+  EXPORT_AUTOEXPORT_DESC:
+    "Синхронизируйте экспортированные файлы и автоматически создавайте варианты SVG, PNG, для светлой и тёмной темы.",
+  SETTINGS_NAVIGATION_OPEN: "Открыть",
+  SETTINGS_BREADCRUMB_ARIA: "Путь настроек",
+  SETTINGS_RELATED_AUTOEXPORT_DESC:
+    "Включите автоматические копии PNG или SVG, чтобы эти форматы стали доступны в списке типа вставляемого файла.",
+  SETTINGS_RELATED_EMBED_TYPE_DESC:
+    "Выберите, что вставлять в документ при встраивании рисунка: Excalidraw, PNG или SVG.",
+  EXPORT_SYNC_NAME:
+    "Поддерживайте синхронизацию имен файлов .SVG и/или .PNG с файлом чертежа",
   EXPORT_SYNC_DESC:
     "Если плагин включен, он будет автоматически обновлять имена файлов .SVG и/или .PNG при переименовании чертежа в той же папке (и с тем же именем). " +
     "Плагин также автоматически удалит файлы .SVG и/или .PNG при удалении рисунка в той же папке (и с тем же именем). ",
@@ -601,38 +1186,42 @@ FILENAME_HEAD: "Имя файла",
     "Автоматическое создание SVG-экспорта вашего чертежа, соответствующего названию файла. " +
     "Плагин сохранит файл *.SVG в той же папке, что и чертеж. " +
     "Встраивайте .svg-файл в документы вместо Excalidraw, делая вставки независимыми от платформы. " +
-    "Если переключатель автоэкспорта включен, этот файл будет обновляться каждый раз, когда вы редактируете чертеж Excalidraw с соответствующим именем. " + 
+    "Если переключатель автоэкспорта включен, этот файл будет обновляться каждый раз, когда вы редактируете чертеж Excalidraw с соответствующим именем. " +
     "Вы можете отменить эту настройку на уровне файла, добавив ключ frontmatter <code>excalidraw-autoexport</code>.Допустимыми значениями для этого ключа являются" +
     "<code>none</code>,<code>both</code>,<code>svg</code>, и <code>png</code>.",
   EXPORT_PNG_NAME: "Автоэкспорт PNG",
   EXPORT_PNG_DESC: "То же самое, что и автоэкспорт SVG, но для *.PNG",
-  EXPORT_BOTH_DARK_AND_LIGHT_NAME: "Экспорт изображения с темной и светлой тематикой",
-  EXPORT_BOTH_DARK_AND_LIGHT_DESC: "Если включить эту функцию, Excalidraw будет экспортировать два файла вместо одного: filename.dark.png, filename.light.png и/или filename.dark.svg и filename.light.svg.<br>" +
+  EXPORT_BOTH_DARK_AND_LIGHT_NAME:
+    "Экспорт изображения с темной и светлой тематикой",
+  EXPORT_BOTH_DARK_AND_LIGHT_DESC:
+    "Если включить эту функцию, Excalidraw будет экспортировать два файла вместо одного: filename.dark.png, filename.light.png и/или filename.dark.svg и filename.light.svg.<br>" +
     "Двойные файлы будут экспортированы как при включенном автоэкспорте SVG или PNG (или обоих), так и при нажатии кнопки экспорта на одном изображении.",
   COMPATIBILITY_HEAD: "Особенности совместимости",
-  COMPATIBILITY_DESC: "Включать эти функции следует только в том случае, если у вас есть веские причины работать с файлами excalidraw.com, а не с файлами markdown. Многие функции плагина не поддерживаются в старых файлах. Типичным случаем может быть использование хранилища поверх папки проекта Visual Studio Code, а также наличие чертежей .excalidraw, к которым вы хотите получить доступ из Visual Studio Code. Другим примером может быть параллельное использование Excalidraw в Logseq и Obsidian.",
+  COMPATIBILITY_DESC:
+    "Включать эти функции следует только в том случае, если у вас есть веские причины работать с файлами excalidraw.com, а не с файлами markdown. Многие функции плагина не поддерживаются в старых файлах. Типичным случаем может быть использование хранилища поверх папки проекта Visual Studio Code, а также наличие чертежей .excalidraw, к которым вы хотите получить доступ из Visual Studio Code. Другим примером может быть параллельное использование Excalidraw в Logseq и Obsidian.",
   DUMMY_TEXT_ELEMENT_LINT_SUPPORT_NAME: "Совместимость с линтерами",
-  DUMMY_TEXT_ELEMENT_LINT_SUPPORT_DESC: "Excalidraw чувствителен к структуре файлов ниже <code># Excalidraw Data</code>. Автоматическая линтинговая обработка документов может создавать ошибки в Excalidraw Data. " +
+  DUMMY_TEXT_ELEMENT_LINT_SUPPORT_DESC:
+    "Excalidraw чувствителен к структуре файлов ниже <code># Excalidraw Data</code>. Автоматическая линтинговая обработка документов может создавать ошибки в Excalidraw Data. " +
     "Хотя я приложил некоторые усилия, чтобы сделать загрузку данных устойчивой к изменениям линта," +
     "это решение не является надежным.<br><mark>Лучше всего избегать линтинга или других автоматических изменений документов Excalidraw с помощью различных плагинов.</mark><br>" +
     "Используйте эту настройку, если по уважительным причинам вы решили проигнорировать мою рекомендацию и настроили линтинг файлов Excalidraw.<br> " +
     "Раздел <code>## Текстовые элементы</code> чувствителен к пустым строкам. Обычный подход к линтингу заключается в добавлении пустой строки после заголовков разделов. В случае Excalidraw это приведет к поломке/изменению первого текстового элемента в чертеже. " +
-    "Чтобы решить эту проблему, можно включить эту настройку. WhenЕсли она включена, Excalidraw добавит в начало фиктивный элемент, <code>## Текстовые элементы</code> который линтер может безопасно модифицировать." ,
+    "Чтобы решить эту проблему, можно включить эту настройку. WhenЕсли она включена, Excalidraw добавит в начало фиктивный элемент, <code>## Текстовые элементы</code> который линтер может безопасно модифицировать.",
   PRESERVE_TEXT_AFTER_DRAWING_NAME: "Совместимость Zotero и Footnotes",
-  PRESERVE_TEXT_AFTER_DRAWING_DESC: "Сохраните текст после раздела ## Чертеж в файле Markdown. Это может незначительно повлиять на производительность при сохранении очень больших рисунков.",
-  DEBUGMODE_NAME: "Включить отладочные сообщения",
-  DEBUGMODE_DESC: "Я рекомендую перезапустить Obsidian после включения/выключения этой настройки. Это позволяет выводить отладочные сообщения в консоль. Это полезно для устранения неполадок. " +
-    "Если у вас возникли проблемы с плагином, пожалуйста, включите эту настройку, воспроизведите проблему и включите журнал консоли в проблему, которую вы поднимаете на <a href='https://github.com/zsviczian/obsidian-excalidraw-plugin/issues'>GitHub</a>",
-  SLIDING_PANES_NAME: "Поддержка плагина раздвижных областей окна (Sliding Panes plugin)",
+  PRESERVE_TEXT_AFTER_DRAWING_DESC:
+    "Сохраните текст после раздела ## Чертеж в файле Markdown. Это может незначительно повлиять на производительность при сохранении очень больших рисунков.",
+  SLIDING_PANES_NAME:
+    "Поддержка плагина раздвижных областей окна (Sliding Panes plugin)",
   SLIDING_PANES_DESC:
     "Чтобы это изменение вступило в силу, необходимо перезапустить Obsidian.<br>" +
-    "Если вы используете <a href='https://github.com/deathau/sliding-panes-obsidian' target='_blank'>Sliding Panes plugin</a> " +
+    `Если вы используете <a href="${URLs.GITHUB_COM_DEATHAU_SLIDING_PANES_OBSIDIAN}" target='_blank'>Sliding Panes plugin</a> ` +
     "Вы можете включить эту настройку, чтобы чертежи Excalidraw работали с плагином Sliding Panes.<br>" +
     "Обратите внимание, что поддержка раздвижных областей окна (Sliding Panes plugin) Excalidraw вызывает проблемы совместимости с рабочими пространствами Obsidian.<br>" +
-    "Обратите внимание, что функция 'Stack Tabs' теперь доступна в Obsidian, обеспечивая встроенную поддержку большинства функций  раздвижных областей окна (Sliding Panes plugin)",
+    "Обратите внимание, что функция 'Stack Tabs' теперь доступна в Obsidian, обеспечивая встроенную поддержку большинства функций раздвижных областей окна (Sliding Panes plugin)",
   EXPORT_EXCALIDRAW_NAME: "Автоэкспорт Excalidraw",
   EXPORT_EXCALIDRAW_DESC: "Аналогично автоэкспорту SVG, но для *.Excalidraw",
-  SYNC_EXCALIDRAW_NAME: "Синхронизация *.excalidraw с *.md-версией одного и того же чертежа",
+  SYNC_EXCALIDRAW_NAME:
+    "Синхронизация *.excalidraw с *.md-версией одного и того же чертежа",
   SYNC_EXCALIDRAW_DESC:
     "Если дата изменения файла *.excalidraw более поздняя, чем дата изменения файла *.md " +
     "то обновите чертеж в файле .md на основе файла .excalidraw",
@@ -642,63 +1231,133 @@ FILENAME_HEAD: "Имя файла",
     "При включении этой функции рисунки, которые вы создаете с помощью значка ленты, действий палитры команд, " +
     "и в файловом проводнике, будут все старые файлы *.excalidraw. Эта настройка также отключит напоминание" +
     "при открытии устаревшего файла для редактирования.",
-  MATHJAX_NAME: "Хост библиотеки javascript MathJax (LaTeX)",
-  MATHJAX_DESC: "Если вы используете уравнения LaTeX в Excalidraw, то плагину необходимо загрузить библиотеку javascript для этого. " + 
-    "Некоторые пользователи не могут получить доступ к определенным хост-серверам. Если у вас возникли проблемы, попробуйте сменить хост здесь. "+
-    "Возможно, вам придется перезапустить Obsidian после закрытия настроек, чтобы это изменение вступило в силу.",
   LATEX_DEFAULT_NAME: "Формула LaTeX по умолчанию для новых уравнений",
-  LATEX_DEFAULT_DESC: "Оставьте пустым, если вам не нужна формула по умолчанию. Здесь можно добавить форматирование по умолчанию, например <code>\\color{white}</code>.",
+  LATEX_DEFAULT_DESC:
+    "Оставьте пустым, если вам не нужна формула по умолчанию. Здесь можно добавить форматирование по умолчанию, например <code>\\color{white}</code>.",
   NONSTANDARD_HEAD: "Поддерживаемые функции, не с Excalidraw.com",
   NONSTANDARD_DESC: `Эти настройки в разделе "Поддерживаемые функции, не относящиеся к Excalidraw.com" предоставляют возможности настройки, выходящие за рамки стандартных функций Excalidraw.com. Эти функции недоступны на сайте excalidraw.com. При экспорте чертежа в Excalidraw.com эти функции будут выглядеть иначе.
     Вы можете настроить количество пользовательских ручек, отображаемых рядом с меню Obsidian на холсте, что позволит вам выбирать из множества вариантов. Кроме того, можно включить опцию локального шрифта, которая добавляет локальный шрифт в список шрифтов на панели свойств элементов для текстовых элементов. `,
   RENDER_TWEAK_HEAD: "Улучшения рендеринга",
   MAX_IMAGE_ZOOM_IN_NAME: "Максимальное разрешение увеличения изображения",
-  MAX_IMAGE_ZOOM_IN_DESC: "В целях экономии памяти и из-за того, что Apple Safari (Obsidian на iOS) имеет некоторые жестко закодированные ограничения, Excalidraw.com ограничивает максимальное разрешение изображений и крупных объектов при увеличении. Вы можете обойти это ограничение с помощью мультипликатора. " +
+  MAX_IMAGE_ZOOM_IN_DESC:
+    "В целях экономии памяти и из-за того, что Apple Safari (Obsidian на iOS) имеет некоторые жестко закодированные ограничения, Excalidraw.com ограничивает максимальное разрешение изображений и крупных объектов при увеличении. Вы можете обойти это ограничение с помощью мультипликатора. " +
     "Это означает, что вы умножаете предел, установленный по умолчанию в Excalidraw. Чем больше множитель, тем лучше будет разрешение увеличения изображения, и тем больше памяти оно будет потреблять. " +
     "Я рекомендую поиграть с несколькими значениями этой настройки. Вы знаете, что натолкнулись на стену, когда при увеличении масштаба PNG-изображения оно вдруг исчезает из поля зрения. Значение по умолчанию - 1. Настройка не влияет на iOS.",
   CUSTOM_PEN_HEAD: "Пользовательские Ручки",
   CUSTOM_PEN_NAME: "Количество пользовательских ручек",
-  CUSTOM_PEN_DESC: "Вы увидите эти ручки рядом с меню Obsidian на холсте. Вы можете настроить ручки на холсте, долго нажимая на кнопку ручки.",
+  CUSTOM_PEN_DESC:
+    "Вы увидите эти ручки рядом с меню Obsidian на холсте. Вы можете настроить ручки на холсте, долго нажимая на кнопку ручки.",
   EXPERIMENTAL_HEAD: "Разные возможности",
-  EXPERIMENTAL_DESC: `Среди прочих возможностей Excalidraw - установка формул LaTeX по умолчанию для новых уравнений, включение Предложение полей (Suggester) для автозаполнения, отображение индикаторов типов файлов Excalidraw, включение иммерсивного встраивания изображений в режиме предварительного просмотра и эксперименты с оптическим распознаванием символов Taskbone для извлечения текста из изображений и чертежей. Пользователи также могут ввести API-ключ Taskbone для расширенного использования сервиса OCR.`,
+  EXPERIMENTAL_DESC:
+    "Настройте значения LaTeX по умолчанию, индикаторы типов файлов, режим живого предварительного просмотра, подсказки свойств и экспериментальную интеграцию OCR Taskbone.",
   EA_HEAD: "Автоматизация Excalidraw",
-  EA_DESC: 
+  EA_GROUP_DESC:
+    "Настройте сценарии Excalidraw Automate, запуск и автозапуск, командные ссылки и параметры, предоставляемые установленными сценариями.",
+  EA_DESC:
     "Excalidraw Автоматизация - это скриптовый и автоматизированный API для Excalidraw. К сожалению, документация по API скудна. " +
-    "Рекомендую прочитать <a href='https://github.com/zsviczian/obsidian-excalidraw-plugin/blob/master/docs/API/ExcalidrawAutomate.d.ts'>ExcalidrawAutomate.d.ts</a> файл, " +
-    "посетить <a href='https://zsviczian.github.io/obsidian-excalidraw-plugin/'>ExcalidrawAutomate How-to</a> страницу - хотя информация " +
-    "здесь давно не обновлялся, - и, наконец, включите расположенный ниже Предложитель полей. Предложитель полей покажет вам доступные " +
-    "функции, их параметры и краткое описание по мере ввода. Предложитель полей - это самая актуальная документация по API.",
+    `Рекомендую прочитать <a href="${URLs.GITHUB_COM_ZSVICZIAN_OBSIDIAN_EXCALIDRAW_PLUGIN_BLOB_MASTER_DOCS_API_EXCALIDRAWAUTOMATE_D_TS}">ExcalidrawAutomate.d.ts</a> файл, ` +
+    `посетить <a href="${URLs.ZSVICZIAN_GITHUB_IO_OBSIDIAN_EXCALIDRAW_PLUGIN}">ExcalidrawAutomate How-to</a> страницу - хотя информация ` +
+    `здесь давно не обновлялся, - и, наконец, включите расположенный ниже Предложитель полей. Предложитель полей покажет вам доступные ` +
+    `функции, их параметры и краткое описание по мере ввода. Предложитель полей - это самая актуальная документация по API.`,
   FIELD_SUGGESTER_NAME: "Включить Предложение полей (Suggester)",
   FIELD_SUGGESTER_DESC:
     "Предложение полей (Suggester) позаимствован у плагинов Breadcrumbs и Templater. Предложение полей (Suggester) полей будет показывать " +
     "меню автозаполнения при вводе текста с описанием функций <code>excalidraw-</code> или <code>ea.</code> в качестве подсказок для отдельных элементов в списке.",
+  ALLOW_JS_FILES_NAME: "Загружать файлы JavaScript из папки скриптов",
+  ALLOW_JS_FILES_DESC:
+    "Если включено, Excalidraw Automate отслеживает и запускает файлы <code>.js</code> в папке скриптов и принимает скрипт запуска <code>.js</code>. " +
+    "По умолчанию Obsidian Sync не синхронизирует файлы, отличные от Markdown, Obsidian не открывает файлы <code>.js</code> для редактирования, а проводник файлов скрывает их. При необходимости включите <b>Синхронизировать все остальные типы</b> и <b>Показывать все типы файлов</b> в Obsidian. Если существуют одноимённые скрипты <code>.md</code> и <code>.js</code>, используется файл Markdown.",
+  STORE_SCRIPTS_AS_JS_NAME: "Хранить загруженные скрипты как",
+  STORE_SCRIPTS_AS_JS_DESC:
+    "Выберите локальный тип файла для новых загрузок и обновлений из библиотеки скриптов. Он не зависит от того, имеет ли удалённый источник расширение <code>.md</code> или <code>.js</code>.",
+  SCRIPT_FILE_EXTENSION_MARKDOWN: "Markdown (.md)",
+  SCRIPT_FILE_EXTENSION_JAVASCRIPT: "JavaScript (.js)",
+  MIGRATE_SCRIPT_FILES_NAME: "Переместить существующие файлы скриптов",
+  MIGRATE_SCRIPTS_TO_JS_BUTTON: "Переместить существующие скрипты в .js",
+  MIGRATE_SCRIPTS_TO_MD_BUTTON: "Переместить существующие скрипты в .md",
+  MIGRATE_SCRIPT_FILES_STATUS:
+    "Можно переместить файлов скриптов в {extension}: {eligible}. {skipped}",
+  MIGRATE_SCRIPT_FILES_CONFIRM:
+    "Перед продолжением создайте резервную копию хранилища.<br><br><b>{count}</b> файл(ов) скриптов будет переименовано в <code>{extension}</code>. Пути закреплённых скриптов будут обновлены. {startup} {skipped}",
+  MIGRATE_SCRIPT_FILES_STARTUP_INCLUDED:
+    "Настроенный скрипт запуска и его параметр также будут обновлены.",
+  MIGRATE_SCRIPT_FILES_SKIPPED:
+    "Одноимённых пар .md/.js, которые не будут перемещены: {count}.",
+  MIGRATE_SCRIPT_FILES_SKIPPED_DETAILS:
+    "Пропущено файлов скриптов, поскольку целевой файл уже существует: {count}.\n{files}",
+  MIGRATE_SCRIPT_FILES_NONE:
+    "Не найдено подходящих файлов скриптов для перемещения.",
+  MIGRATE_SCRIPT_FILES_COMPLETE:
+    "Перемещено файлов скриптов в {extension}: {count}.",
+  MIGRATE_SCRIPT_FILES_FAILED:
+    "Не удалось переместить файлы скриптов. Выполненные переименования по возможности отменены.",
+  ENABLE_ONLOAD_SCRIPTS_NAME: "Включить onload-скрипты",
+  ENABLE_ONLOAD_SCRIPTS_CONFIRMATION:
+    "Этот файл содержит <code>excalidraw-onload-script</code>. Включить onload-скрипты?",
+  ENABLE_ONLOAD_SCRIPTS_CONFIRM_ENABLE: "Включить скрипты",
+  ENABLE_ONLOAD_SCRIPTS_CONFIRM_DENY: "Не разрешать",
+  ENABLE_ONLOAD_SCRIPTS_DESC:
+    "Если эта настройка включена, Excalidraw будет выполнять <code>excalidraw-onload-script</code> на уровне файла во всех рисунках, которые вы откроете далее, пока вы не отключите эту настройку. " +
+    "Это создаёт риск, если вы загружаете Markdown-файлы из неизвестных источников: злоумышленник может использовать <code>excalidraw-onload-script</code> " +
+    "для запуска любой команды в Obsidian и потенциальной передачи данных в интернет. Включайте это только если доверяете файлу и его источнику.",
+  AUTOSTART_SCRIPT_PROMPT:
+    "хочет запускаться автоматически каждый раз, когда вы открываете рисунок Excalidraw. Разрешить это?",
+  AUTOSTART_SCRIPT_PROMPT_MANAGE_HINT:
+    "Позже это можно изменить в командной палитре («Автозапуск скриптов») или в Настройках → Автоматизация Excalidraw → Автозапуск скриптов.",
+  AUTOSTART_SCRIPT_ALLOW: "Автозапуск",
+  AUTOSTART_SCRIPT_DENY: "Только вручную",
+  AUTOSTART_SCRIPT_ASK_LATER: "Спрашивать каждый раз",
+  AUTOSTART_SCRIPTS_HEAD: "Автозапуск скриптов",
+  AUTOSTART_SCRIPTS_DESC:
+    "Скрипты появляются здесь после того, как они запрашивают разрешение автоматически запускаться каждый раз при открытии нового рисунка Excalidraw (запрос инициируется однократным ручным запуском скрипта). Изменить настройку скрипта можно в любое время.",
+  AUTOSTART_SCRIPTS_EMPTY: "Ни один скрипт ещё не запрашивал разрешение на автозапуск.",
+  AUTOSTART_SCRIPT_FAILED_WARNING:
+    "Этот скрипт завершился ошибкой при последнем автозапуске.",
+  ENABLE_COMMAND_LINKS_NAME: "Включить ссылки-команды (cmd://)",
+  ENABLE_COMMAND_LINKS_CONFIRMATION:
+    "Эта ссылка запускает команду Obsidian через <code>cmd://</code>. Включить ссылки-команды?",
+  ENABLE_COMMAND_LINKS_CONFIRM_ENABLE: "Включить ссылки-команды",
+  ENABLE_COMMAND_LINKS_CONFIRM_DENY: "Не разрешать",
+  ENABLE_COMMAND_LINKS_DESC:
+    "Если настройка включена, Excalidraw позволит ссылкам, начинающимся с <code>cmd://</code>, выполнять команды Obsidian в рисунках, которые вы открываете, пока вы не отключите эту настройку. " +
+    "Это создаёт риск при открытии рисунков из неизвестных источников: вредоносный рисунок может превратить обычный клик в запуск привилегированной команды. " +
+    "Включайте это только если доверяете файлу и его источнику.",
   STARTUP_SCRIPT_NAME: "Сценарий запуска",
+  STARTUP_SCRIPT_JS_DISABLED:
+    "Сценарии запуска JavaScript отключены. Сначала включите файлы JavaScript в настройках Excalidraw Automate.",
   STARTUP_SCRIPT_DESC:
-    "Если этот параметр установлен, excalidraw будет выполнять скрипт при запуске плагина. Это полезно, если вы хотите установить какой-либо из крючков Excalidraw Automate. " +
-    "Скрипт запуска - это файл в формате markdown, который должен содержать код javascript, который вы хотите выполнять при запуске Excalidraw.",
+    "Если задано, Excalidraw выполнит скрипт при запуске плагина. Это полезно для настройки крючков Excalidraw Automate. Пути без расширения используют файл Markdown; файлы <code>.js</code> принимаются, когда включена загрузка файлов JavaScript.",
   STARTUP_SCRIPT_BUTTON_CREATE: "Создание сценария запуска",
   STARTUP_SCRIPT_BUTTON_OPEN: "Открыть сценарий запуска",
-  STARTUP_SCRIPT_EXISTS: "Файл сценария запуска уже существует",
-  FILETYPE_NAME: "Тип отображения (✏️) для файлов excalidraw.md в Файловом Проводнике",
-  FILETYPE_DESC: "Файлы Excalidraw получат индикатор с помощью эмодзи или текста, заданного в следующей настройке.",
+  FILETYPE_NAME:
+    "Тип отображения (✏️) для файлов excalidraw.md в Файловом Проводнике",
+  FILETYPE_DESC:
+    "Файлы Excalidraw получат индикатор с помощью эмодзи или текста, заданного в следующей настройке.",
   FILETAG_NAME: "Установка типа индикатора для файлов excalidraw.md",
   FILETAG_DESC: "Текст или эмодзи для отображения в качестве типа индикатора.",
   INSERT_EMOJI: "Вставьте эмодзи",
-  LIVEPREVIEW_NAME: "Встраивание изображений в режиме предварительного просмотра в реальном времени",
+  LIVEPREVIEW_NAME:
+    "Встраивание изображений в режиме предварительного просмотра в реальном времени",
   LIVEPREVIEW_DESC:
     "Включите этот параметр для поддержки стилей вставки изображений, таких как ![[drawing|width|style]], в режиме редактирования живого предварительного просмотра. " +
     "Настройка не повлияет на открытые в данный момент документы. Чтобы изменения вступили в силу, необходимо закрыть открытые документы и" +
     "открыть их снова.",
   FADE_OUT_EXCALIDRAW_MARKUP_NAME: "Затухание разметки Excalidraw",
-  FADE_OUT_EXCALIDRAW_MARKUP_DESC: "В режиме просмотра Markdown раздел после комментария %% исчезает. " +
+  FADE_OUT_EXCALIDRAW_MARKUP_DESC:
+    "В режиме просмотра Markdown раздел после комментария %% исчезает. " +
     "Текст остается на месте, но визуальный беспорядок уменьшается. Обратите внимание, вы можете поместить %% в строку прямо над #Элементы текста, " +
     "в этом случае вся разметка рисунка исчезнет, включая #Элементы текста. Побочным эффектом будет то, что вы не сможете блокировать текст ссылок в других примечаниях, то есть после секции комментариев %%. Это редко является проблемой. " +
     "Если вы захотите отредактировать сценарий разметки Excalidraw, просто переключитесь в режим просмотра разметки и временно удалите комментарий %%.",
-  EXCALIDRAW_PROPERTIES_NAME: "Загрузка свойств Excalidraw в Obsidian Suggester",
-  EXCALIDRAW_PROPERTIES_DESC: "Отключите этот параметр, чтобы при запуске плагина свойства документа Excalidraw загружались в предложение свойств Obsidian. "+
-   "Включение этой функции упрощает использование свойств титульного листа Excalidraw, позволяя использовать множество мощных настроек. Если вы предпочитаете не загружать эти свойства автоматически, " +
-   "Вы можете отключить эту функцию, но при этом вам придется вручную удалить все ненужные свойства из предложения. " +
-   "Обратите внимание, что включение этой настройки требует перезапуска плагина, так как свойства загружаются при запуске.",  
+  EXCALIDRAW_PROPERTIES_NAME:
+    "Загрузка свойств Excalidraw в Obsidian Suggester",
+  EXCALIDRAW_PROPERTIES_DESC:
+    "Отключите этот параметр, чтобы при запуске плагина свойства документа Excalidraw загружались в предложение свойств Obsidian. " +
+    "Включение этой функции упрощает использование свойств титульного листа Excalidraw, позволяя использовать множество мощных настроек. Если вы предпочитаете не загружать эти свойства автоматически, " +
+    "Вы можете отключить эту функцию, но при этом вам придется вручную удалить все ненужные свойства из предложения. " +
+    "Обратите внимание, что включение этой настройки требует перезапуска плагина, так как свойства загружаются при запуске.",
+  FONTS_HEAD: "Шрифты",
+  FONTS_DESC:
+    "Настройте локальные гарнитуры и загруженные шрифты CJK для Excalidraw.",
   CUSTOM_FONT_HEAD: "Локальный шрифт",
   ENABLE_FOURTH_FONT_NAME: "Включите опцию локального шрифта",
   ENABLE_FOURTH_FONT_DESC:
@@ -712,20 +1371,29 @@ FILENAME_HEAD: "Имя файла",
     "Если файл не выбран, Excalidraw по умолчанию использует шрифт Virgil. " +
     "Для оптимальной производительности рекомендуется использовать файл .woff2, так как Excalidraw закодирует только необходимые глифы при экспорте изображений в SVG. " +
     "Другие форматы шрифтов будут встраивать весь шрифт в экспортируемый файл, что может привести к значительному увеличению размера файла.",
+  OFFLINE_CJK_NAME: "Поддержка шрифтов CJK без подключения к Интернету",
+  OFFLINE_CJK_GROUP_DESC:
+    "Загрузите и выборочно предварительно загружайте китайские, японские и корейские шрифты, чтобы Excalidraw мог отображать их без подключения к Интернету.",
   SCRIPT_SETTINGS_HEAD: "Настройки для установленных сценариев",
-  SCRIPT_SETTINGS_DESC: "Некоторые сценарии Excalidraw Automate Scripts включают в себя настройки. Настройки упорядочены по сценариям. Настройки станут видны в этом списке только после того, как вы один раз выполните загруженный скрипт.",
+  SCRIPT_SETTINGS_DESC:
+    "Некоторые сценарии Excalidraw Automate Scripts включают в себя настройки. Настройки упорядочены по сценариям. Настройки станут видны в этом списке только после того, как вы один раз выполните загруженный скрипт.",
   TASKBONE_HEAD: "Taskbone Оптический распознаватель символов",
-  TASKBONE_DESC: "Это экспериментальная интеграция оптического распознавания символов в Excalidraw. Обратите внимание, что taskbone - это независимый внешний сервис, не предоставляемый ни Excalidraw, ни проектом плагинов Excalidraw-Obsidian. " +
+  TASKBONE_GROUP_DESC:
+    "Настройте дополнительный онлайн-сервис OCR Taskbone для извлечения доступного для поиска текста из рисунков и изображений.",
+  TASKBONE_DESC:
+    "Это экспериментальная интеграция оптического распознавания символов в Excalidraw. Обратите внимание, что taskbone - это независимый внешний сервис, не предоставляемый ни Excalidraw, ни проектом плагинов Excalidraw-Obsidian. " +
     "Сервис OCR выхватывает разборчивый текст из произвольных линий и встроенных изображений на вашем холсте и помещает распознанный текст на передний план вашего рисунка, а также в буфер обмена. " +
     "Наличие текста во frontmatter позволит вам искать в Obsidian их текстовое содержание. " +
     "Обратите внимание, что процесс извлечения текста из изображения происходит не локально, а через онлайн API. Сервис taskbone хранит изображение на своих серверах только до тех пор, пока это необходимо для извлечения текста. Однако если вас это не устраивает, не используйте эту функцию.",
   TASKBONE_ENABLE_NAME: "Включить Taskbone",
-  TASKBONE_ENABLE_DESC: "Включая эту услугу, вы соглашаетесь с <a href='https://www.taskbone.com/legal/terms/' target='_blank'>Условиями использования Taskbone </a> и " +
-    "<a href='https://www.taskbone.com/legal/privacy/' target='_blank'>политикой конфиденциальности</a>.",
+  TASKBONE_ENABLE_DESC:
+    `Включая эту услугу, вы соглашаетесь с <a href="${URLs.WWW_TASKBONE_COM_LEGAL_TERMS}" target='_blank'>Условиями использования Taskbone </a> и ` +
+    `<a href="${URLs.WWW_TASKBONE_COM_LEGAL_PRIVACY}" target='_blank'>политикой конфиденциальности</a>.`,
   TASKBONE_APIKEY_NAME: "Taskbone API Ключ",
-  TASKBONE_APIKEY_DESC: "Taskbone предлагает бесплатную услугу с разумным количеством сканирований в месяц. Если вы хотите использовать эту функцию чаще, или вам необходимо повысить " + 
-    "разработчика Taskbone (как вы можете себе представить, не существует такого понятия, как «бесплатно», предоставление этого потрясающего сервиса OCR стоит разработчику Taskbone определенных денег), вы можете " +
-    "приобрести платный API-ключ на сайте <a href='https://www.taskbone.com/' target='_blank'>taskbone.com</a>. Если вы уже приобрели ключ, просто перезапишите этот автоматически сгенерированный бесплатный API-ключ своим платным ключом.",
+  TASKBONE_APIKEY_DESC:
+    `Taskbone предлагает бесплатную услугу с разумным количеством сканирований в месяц. Если вы хотите использовать эту функцию чаще, или вам необходимо повысить ` +
+    `разработчика Taskbone (как вы можете себе представить, не существует такого понятия, как «бесплатно», предоставление этого потрясающего сервиса OCR стоит разработчику Taskbone определенных денег), вы можете ` +
+    `приобрести платный API-ключ на сайте <a href="${URLs.WWW_TASKBONE_COM}" target='_blank'>taskbone.com</a>. Если вы уже приобрели ключ, просто перезапишите этот автоматически сгенерированный бесплатный API-ключ своим платным ключом.`,
 
   //HotkeyEditor
   HOTKEY_PRESS_COMBO_NANE: "Нажмите комбинацию горячих клавиш",
@@ -740,36 +1408,38 @@ FILENAME_HEAD: "Имя файла",
   NO_MATCH: "Ни один файл не соответствует вашему запросу.",
   NO_MATCHING_COMMAND: "Ни одна команда не соответствует вашему запросу.",
   SELECT_FILE_TO_LINK: "Выберите файл, для которого нужно вставить ссылку.",
-  SELECT_COMMAND_PLACEHOLDER: "Выберите команду, для которой нужно вставить ссылку.",
-  SELECT_DRAWING: "Выберите изображение или рисунок, который необходимо вставить.",
+  SELECT_COMMAND_PLACEHOLDER:
+    "Выберите команду, для которой нужно вставить ссылку.",
+  SELECT_DRAWING:
+    "Выберите изображение или рисунок, который необходимо вставить.",
   TYPE_FILENAME: "Введите название чертежа для выбора.",
-  SELECT_FILE_OR_TYPE_NEW: "Выберите существующий чертеж или введите имя нового чертежа, затем нажмите Enter.",
+  SELECT_FILE_OR_TYPE_NEW:
+    "Выберите существующий чертеж или введите имя нового чертежа, затем нажмите Enter.",
   SELECT_TO_EMBED: "Выберите чертеж для вставки в активный документ.",
   SELECT_MD: "Выберите документ в формате markdown для вставки.",
-  SELECT_PDF: "Выберите документ PDF для вставки.",
-  PDF_PAGES_HEADER: "Страницы для загрузки?",
-  PDF_PAGES_DESC: "Формат: 1, 3-5, 7, 9-11",
 
   //SelectCard.ts
   TYPE_SECTION: "Введите название раздела для выбора.",
-  SELECT_SECTION_OR_TYPE_NEW: "Выберите существующий раздел или введите название нового раздела, затем нажмите Enter.",
+  SELECT_SECTION_OR_TYPE_NEW:
+    "Выберите существующий раздел или введите название нового раздела, затем нажмите Enter.",
   INVALID_SECTION_NAME: "Недопустимое название раздела.",
-  EMPTY_SECTION_MESSAGE: "Введите название раздела и нажмите Enter, чтобы создать новый раздел.",
+  EMPTY_SECTION_MESSAGE:
+    "Введите название раздела и нажмите Enter, чтобы создать новый раздел.",
 
   //EmbeddedFileLoader.ts
-  INFINITE_LOOP_WARNING: "ПРЕДУПРЕЖДЕНИЕ EXCALIDRAW\nОшибка при загрузке встроенных изображений из-за бесконечного цикла в файле:\n",
+  INFINITE_LOOP_WARNING:
+    "ПРЕДУПРЕЖДЕНИЕ EXCALIDRAW\nОшибка при загрузке встроенных изображений из-за бесконечного цикла в файле:\n",
 
   //Scripts.ts
-  SCRIPT_EXECUTION_ERROR: "Ошибка выполнения сценария. Пожалуйста, найдите сообщение об ошибке в консоли разработчика.",
+  SCRIPT_EXECUTION_ERROR:
+    "Ошибка выполнения сценария. Пожалуйста, найдите сообщение об ошибке в консоли разработчика.",
 
   //ExcalidrawData.ts
-  LOAD_FROM_BACKUP: "Файл Excalidraw был поврежден. Загрузка из резервного файла.",
-
-  //ObsidianMenu.tsx
   GOTO_FULLSCREEN: "Переход в полноэкранный режим",
   EXIT_FULLSCREEN: "Выход из полноэкранного режима",
   TOGGLE_FULLSCREEN: "Переключить полноэкранный режим",
-  TOGGLE_DISABLEBINDING: "Переключить инвертирование поведения привязки по умолчанию",
+  TOGGLE_DISABLEBINDING:
+    "Переключить инвертирование поведения привязки по умолчанию",
   TOGGLE_FRAME_RENDERING: "Переключить рендеринг кадра",
   TOGGLE_FRAME_CLIPPING: "Переключить обрезку кадра",
   OPEN_LINK_CLICK: "Открыть ссылку",
@@ -791,7 +1461,8 @@ FILENAME_HEAD: "Имя файла",
   ES_ZOOM: "Масштабирование встраиваемого контента",
   ES_YOUTUBE_START: "Время начала YouTube",
   ES_YOUTUBE_START_DESC: "ss, mm:ss, hh:mm:ss",
-  ES_YOUTUBE_START_INVALID: "Время начала YouTube недействительно. Проверьте формат и повторите попытку.",
+  ES_YOUTUBE_START_INVALID:
+    "Время начала YouTube недействительно. Проверьте формат и повторите попытку.",
   ES_FILENAME_VISIBLE: "Видимое имя файла",
   ES_BACKGROUND_HEAD: "Цвет фона встроенной заметки",
   ES_BACKGROUND_MATCH_ELEMENT: "Соответствие фонового цвета элемента",
@@ -804,36 +1475,46 @@ FILENAME_HEAD: "Имя файла",
   ES_BORDER_OPACITY: "Непрозрачность границы",
   ES_EMBEDDABLE_SETTINGS: "Настройки встраиваемой разметки",
   ES_USE_OBSIDIAN_DEFAULTS: "Использовать настройки Obsidian по умолчанию",
-  ES_ZOOM_100_RELATIVE_DESC: "Кнопка настроит масштаб элемента так, чтобы он отображал содержимое на 100% относительно текущего уровня масштабирования холста",
+  ES_ZOOM_100_RELATIVE_DESC:
+    "Кнопка настроит масштаб элемента так, чтобы он отображал содержимое на 100% относительно текущего уровня масштабирования холста",
   ES_ZOOM_100: "Относительный 100%",
 
   //Prompts.ts
   PROMPT_FILE_DOES_NOT_EXIST: "Файл не существует. Вы хотите его создать?",
   PROMPT_ERROR_NO_FILENAME: "Ошибка: Имя нового файла не может быть пустым",
-  PROMPT_ERROR_DRAWING_CLOSED: "Неизвестная ошибка. Похоже, что ваш чертеж был закрыт или файл чертежа отсутствует",
+  PROMPT_ERROR_DRAWING_CLOSED:
+    "Неизвестная ошибка. Похоже, что ваш чертеж был закрыт или файл чертежа отсутствует",
   PROMPT_TITLE_NEW_FILE: "Новый файл",
   PROMPT_TITLE_CONFIRMATION: "Подтверждение",
   PROMPT_BUTTON_CREATE_EXCALIDRAW: "Создать EX",
-  PROMPT_BUTTON_CREATE_EXCALIDRAW_ARIA: "Создать чертеж Excalidraw и открыть его в новой вкладке",
+  PROMPT_BUTTON_CREATE_EXCALIDRAW_ARIA:
+    "Создать чертеж Excalidraw и открыть его в новой вкладке",
   PROMPT_BUTTON_CREATE_MARKDOWN: "Создать MD",
-  PROMPT_BUTTON_CREATE_MARKDOWN_ARIA: "Создать документ в формате markdown и открыть его в новой вкладке",
+  PROMPT_BUTTON_CREATE_MARKDOWN_ARIA:
+    "Создать документ в формате markdown и открыть его в новой вкладке",
   PROMPT_BUTTON_EMBED_MARKDOWN: "Встроить MD",
-  PROMPT_BUTTON_EMBED_MARKDOWN_ARIA: "Замена выбранного элемента встроенным документом с разметкой",
+  PROMPT_BUTTON_EMBED_MARKDOWN_ARIA:
+    "Замена выбранного элемента встроенным документом с разметкой",
   PROMPT_BUTTON_NEVERMIND: "Неважно",
   PROMPT_BUTTON_OK: "OK",
   PROMPT_BUTTON_CANCEL: "Отменить",
+  PROMPT_BUTTON_CLOSE: "Закрыть",
   PROMPT_BUTTON_INSERT_LINE: "Вставить новую строку",
   PROMPT_BUTTON_INSERT_SPACE: "Вставить пробел",
   PROMPT_BUTTON_INSERT_LINK: "Вставить ссылку на файл в формате markdown",
   PROMPT_BUTTON_UPPERCASE: "Прописные буквы",
   PROMPT_SELECT_TEMPLATE: "Выберите шаблон",
+  PROMPT_BLANK_DRAWING: "Пустой рисунок",
+  LATEX_SUITE_PLUGIN_SUGGESTION:
+    "Install the 'Latex Suite' plugin from Obsidian Community Plugins to enable live preview as you type your equation.",
 
   //ModifierKeySettings
   WEB_BROWSER_DRAG_ACTION: "Действие перетаскивания веб-браузера",
   LOCAL_FILE_DRAG_ACTION: "Действие перетаскивания локального файла ОС",
   INTERNAL_DRAG_ACTION: "Внутреннее действие перетаскивания в Obsidian",
   PANE_TARGET: "Поведение при нажатии на ссылку",
-  DEFAULT_ACTION_DESC: "Если ни одна из комбинаций не применяется, для этой группы будет действовать действие по умолчанию: ",
+  DEFAULT_ACTION_DESC:
+    "Если ни одна из комбинаций не применяется, для этой группы будет действовать действие по умолчанию: ",
 
   //FrameSettings.ts
   FRAME_SETTINGS_TITLE: "Настройки кадров",
@@ -844,13 +1525,94 @@ FILENAME_HEAD: "Имя файла",
 
   //InsertPDFModal.ts
   IPM_PAGES_TO_IMPORT_NAME: "Страницы для импорта",
+  IPM_PAGES_TO_IMPORT_DESC: "Например: 1,3-5,7,9-10",
   IPM_SELECT_PAGES_TO_IMPORT: "Пожалуйста, выберите страницы для импорта",
   IPM_ADD_BORDER_BOX_NAME: "Добавить рамку",
   IPM_ADD_FRAME_NAME: "Добавить страницу в кадр",
-  IPM_ADD_FRAME_DESC: "Для удобства работы я рекомендую зафиксировать страницу внутри кадра. " +
+  IPM_ADD_FRAME_DESC:
+    "Для удобства работы я рекомендую зафиксировать страницу внутри кадра. " +
     "Однако если вы заблокировали страницу внутри кадра, то единственный способ разблокировать ее - щелкнуть правой кнопкой мыши кадр, выбрать пункт «Удалить элементы из кадра», а затем разблокировать страницу.",
   IPM_GROUP_PAGES_NAME: "Страницы группы",
-  IPM_GROUP_PAGES_DESC: "Это позволит объединить все страницы в одну группу. Это рекомендуется делать, если вы блокируете страницы после импорта, потому что группу будет легче разблокировать позже, чем разблокировать каждую по отдельности.",
+  IPM_GROUP_PAGES_DESC:
+    "Это позволит объединить все страницы в одну группу. Это рекомендуется делать, если вы блокируете страницы после импорта, потому что группу будет легче разблокировать позже, чем разблокировать каждую по отдельности.",
   IPM_SELECT_PDF: "Пожалуйста, выберите файл PDF",
 
+  //Taskbone.ts
+  OCR_ABORT_NO_ELEMENTS:
+    "Отмена OCR, так как на холсте нет элементов изображения или рисования от руки.",
+  OCR_ALREADY_PROCESSED:
+    "Рисунок уже обработан, результат можно найти во frontmatter в режиме просмотра Markdown. Если вы запустили команду с панели Obsidian в Excalidraw, вы можете нажать ctrl(cmd)+клик по команде, чтобы принудительно повторить сканирование.",
+
+  //ObserverManager.ts
+  ERROR_ADDING_OBSERVER_MANAGER: "Ошибка при добавлении ObserverManager",
+
+  //PublishOutOfDateFiles.ts
+  POODF_TITLE: "Устаревшие файлы SVG",
+  POODF_CHECK_RECURSIVE: "Проверить рекурсивно",
+  POODF_OPEN_SELECTED: "Открыть выбранное",
+
+  //ImageCache.ts
+  IMAGE_CACHE_INITIALIZED:
+    "Кэш изображений Excalidraw инициализирован - теперь вы можете повторить попытку открытия повреждённого рисунка.",
+
+  //carveout.ts
+  NEW_DRAWING_TIMEOUT:
+    "Файл не найден. Создание нового рисунка Excalidraw занимает слишком много времени. Пожалуйста, попробуйте снова.",
+  SCRIPT_INSTALLED_NOTICE: "Установлено",
+  SCRIPT_INSTALL_ERROR_NOTICE: "Ошибка установки скрипта",
+  SCRIPT_STORE_TITLE: "Скрипты сообщества",
+  SCRIPT_STORE_LOADING: "Загрузка скриптов сообщества...",
+  SCRIPT_STORE_MASTERY_TITLE: "Excalidraw Mastery",
+  SCRIPT_STORE_MASTERY_DESC: "Освойте Excalidraw и Visual PKM",
+  SCRIPT_STORE_COFFEE_TITLE: "Купить мне кофе",
+  SCRIPT_STORE_COFFEE_DESC: "Поддержать дальнейшую разработку Excalidraw",
+  SCRIPT_STORE_SCRIPTING_BANNER_ALT: "Автоматизируйте что угодно с помощью скриптов Excalidraw",
+  SCRIPT_STORE_SCRIPTING_BANNER_CAPTION: "Создавайте собственные скрипты Excalidraw. Нажмите, чтобы узнать больше.",
+  SCRIPT_STORE_UPDATES_TITLE: "Доступны обновления",
+  SCRIPT_STORE_UPDATES_DESC: "Обновляйте установленные скрипты без поиска по каталогу.",
+  SCRIPT_STORE_UPDATE_ALL: "Обновить все",
+  SCRIPT_STORE_UPDATING: "Обновление...",
+  SCRIPT_STORE_UPDATE_ALL_DONE: "Все скрипты сообщества обновлены.",
+  SCRIPT_STORE_UPDATE_ALL_PARTIAL: "Некоторые скрипты не удалось обновить. Ошибок:",
+  SCRIPT_STORE_BROWSE_TITLE: "Обзор скриптов",
+  SCRIPT_STORE_BROWSE_DESC: "Ищите по названию, автору, описанию или категории.",
+  SCRIPT_STORE_SEARCH_PLACEHOLDER: "Поиск скриптов сообщества",
+  SCRIPT_STORE_CATEGORY_LABEL: "Категория скрипта",
+  SCRIPT_STORE_ALL_CATEGORIES: "Все категории",
+  SCRIPT_STORE_ALL_SCRIPTS: "Все",
+  SCRIPT_STORE_INSTALLED_SCRIPTS: "Установленные",
+  SCRIPT_STORE_RESULTS: "скриптов",
+  SCRIPT_STORE_NO_RESULTS: "Скрипты не найдены",
+  SCRIPT_STORE_NO_RESULTS_DESC: "Попробуйте другой запрос или категорию.",
+  SCRIPT_STORE_DETAILS: "Сведения о скрипте",
+  SCRIPT_STORE_FEATURED: "Избранное",
+  SCRIPT_STORE_BY: "Автор",
+  SCRIPT_STORE_UPDATE_BADGE: "Обновление",
+  SCRIPT_STORE_INSTALLED_BADGE: "Установлен",
+  SCRIPT_STORE_CHECK_FAILED: "Проверка не удалась",
+  SCRIPT_STORE_INSTALL: "Установить",
+  SCRIPT_STORE_UPDATE: "Обновить",
+  SCRIPT_STORE_REINSTALL: "Переустановить",
+  SCRIPT_STORE_BACK: "Назад к скриптам",
+  SCRIPT_STORE_VIEW_SOURCE: "Открыть исходник",
+  SCRIPT_STORE_LOCAL_TITLE: "Установленный скрипт",
+  SCRIPT_STORE_MULTIPLE_COPIES:
+    "Найдено несколько управляемых копий. Для проверки обновлений используется первая копия. Каждую копию можно открыть, переместить или удалить отдельно.",
+  SCRIPT_STORE_PRIMARY_COPY: "Используется для проверки обновлений",
+  SCRIPT_STORE_ADDITIONAL_COPY: "Дополнительная копия",
+  SCRIPT_STORE_LOCAL_FILE: "Локальный файл",
+  SCRIPT_STORE_OPEN_LOCAL: "Открыть локальный файл",
+  SCRIPT_STORE_OPEN_LOCAL_FAILED: "Не удалось открыть локальный файл скрипта.",
+  SCRIPT_STORE_JS_OPEN_NOTE:
+    "По умолчанию Obsidian не редактирует JavaScript-файлы. Если ни один плагин не предоставляет редактор .js, файл может открыться во внешнем приложении.",
+  SCRIPT_STORE_UNINSTALL: "Удалить",
+  SCRIPT_STORE_UNINSTALLED: "Удалено",
+  SCRIPT_STORE_UNINSTALL_FAILED: "Не удалось удалить",
+  SCRIPT_STORE_GROUP_LABEL: "Группа скриптов",
+  SCRIPT_STORE_GROUP_ROOT: "Без группы (Downloaded)",
+  SCRIPT_STORE_NEW_GROUP_PLACEHOLDER: "Имя новой группы",
+  SCRIPT_STORE_MOVE_TO_GROUP: "Переместить",
+  SCRIPT_STORE_MOVED_TO_GROUP: "Скрипт перемещён",
+  SCRIPT_STORE_MOVE_FAILED: "Не удалось переместить скрипт",
+  SCRIPT_UPDATES_AVAILABLE: `Доступны обновления скриптов — проверьте магазин скриптов.\n\n${DEVICE.isDesktop ? `Это сообщение доступно в console.log (${DEVICE.isMacOS ? "CMD+OPT+i" : "CTRL+SHIFT+i"})\n\n` : ""}Проверяются только скрипты сообщества, находящиеся в папке Downloaded. Копии в других местах папки скриптов игнорируются.`,
 };

@@ -1,22 +1,24 @@
 export type FILENAMEPARTS = {
-  filepath: string,
-  hasBlockref: boolean,
-  hasGroupref: boolean,
-  hasTaskbone: boolean,
-  hasArearef: boolean,
-  hasFrameref: boolean,
-  hasClippedFrameref: boolean,
-  hasSectionref: boolean,
-  blockref: string,
-  sectionref: string,
-  linkpartReference: string,
-  linkpartAlias: string
+  filepath: string;
+  hasBlockref: boolean;
+  hasGroupref: boolean;
+  hasTaskbone: boolean;
+  hasArearef: boolean;
+  hasFrameref: boolean;
+  hasClippedFrameref: boolean;
+  hasSectionref: boolean;
+  blockref: string;
+  sectionref: string;
+  linkpartReference: string;
+  linkpartAlias: string;
+  /** Optional non-negative export padding parsed from an image-reference link. */
+  padding?: number;
 };
 
 export enum PreviewImageType {
   PNG = "PNG",
   SVGIMG = "SVGIMG",
-  SVG = "SVG"
+  SVG = "SVG",
 }
 
 export interface FrameRenderingOptions {
@@ -25,3 +27,10 @@ export interface FrameRenderingOptions {
   outline: boolean;
   clip: boolean;
 }
+
+export type PaneTarget =
+  | "active-pane"
+  | "new-pane"
+  | "popout-window"
+  | "new-tab"
+  | "md-properties";

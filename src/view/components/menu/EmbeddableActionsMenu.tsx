@@ -1,34 +1,61 @@
 import { TFile } from "obsidian";
 import * as React from "react";
-import ExcalidrawView from "../../ExcalidrawView";
-import { ExcalidrawElement, ExcalidrawEmbeddableElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
-import { AppState, ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
+import type ExcalidrawView from "../../ExcalidrawView";
+import {
+  ExcalidrawElement,
+  ExcalidrawEmbeddableElement,
+  NonDeletedExcalidrawElement,
+} from "@zsviczian/excalidraw/types/element/src/types";
+import { AppState } from "@zsviczian/excalidraw/types/excalidraw/types";
 import { ActionButton } from "./ActionButton";
 import { ICONS } from "../../../constants/actionIcons";
 import { t } from "src/lang/helpers";
 import { ScriptEngine } from "../../../shared/Scripts";
-import { MD_EX_SECTIONS, ROOTELEMENTSIZE, nanoid, sceneCoordsToViewportCoords } from "src/constants/constants";
-import { REGEX_LINK, REG_LINKINDEX_HYPERLINK } from "../../../shared/ExcalidrawData";
-import { processLinkText, useDefaultExcalidrawFrame } from "src/utils/customEmbeddableUtils";
-import { cleanSectionHeading } from "src/utils/obsidianUtils";
-import { EmbeddableSettings } from "src/shared/Dialogs/EmbeddableSettings";
-import { openExternalLink } from "src/utils/excalidrawViewUtils";
+import {
+  MD_EX_SECTIONS,
+  ROOTELEMENTSIZE,
+  sceneCoordsToViewportCoords,
+} from "src/constants/constants";
+import {
+  REGEX_LINK,
+  REG_LINKINDEX_HYPERLINK,
+} from "../../../shared/ExcalidrawData";
+import {
+  processLinkText,
+  useDefaultExcalidrawFrame,
+} from "src/utils/customEmbeddableUtils";
+import { getActivePDFPageNumberFromPDFView } from "src/utils/obsidianUtils";
+import { cleanSectionHeading } from "src/utils/pathUtils";
+import {
+  EmbeddableSettings,
+  EmbeddableMDCustomProps,
+} from "src/shared/Dialogs/EmbeddableSettings";
+import {
+  insertImageToView,
+  openExternalLink,
+} from "src/utils/excalidrawViewUtils";
 import { getEA } from "src/core";
-import { ExcalidrawAutomate } from "src/shared/ExcalidrawAutomate";
+import { CaptureUpdateAction } from "src/constants/constants";
+import { URLs } from "src/constants/safeUrls";
+import { setStyle } from "src/utils/styleUtils";
+import { addAppendUpdateCustomData } from "src/utils/elementCustomDataUtils";
+import {
+  selectMarkdownBlockSubpath,
+  selectMarkdownHeadingSubpath,
+} from "src/shared/Suggesters/markdownSubpathSuggester";
 
 export class EmbeddableMenu {
   private menuFadeTimeout: number = 0;
   private menuElementId: string = null;
 
-  constructor( 
-    private view:ExcalidrawView,
+  constructor(
+    private view: ExcalidrawView,
     private containerRef: React.RefObject<HTMLDivElement>,
-  ) {
-  }
+  ) {}
 
   public destroy() {
-    if(this.menuFadeTimeout) {
-      clearTimeout(this.menuFadeTimeout);
+    if (this.menuFadeTimeout) {
+      window.clearTimeout(this.menuFadeTimeout);
       this.menuFadeTimeout = null;
     }
     this.view = null;
@@ -39,184 +66,411 @@ export class EmbeddableMenu {
     this.renderButtons = null;
   }
 
-  private updateElement = (subpath: string, element: ExcalidrawEmbeddableElement, file: TFile) => {
-    if(!element) return;
+  private updateElement = async (
+    subpath: string,
+    element: ExcalidrawEmbeddableElement,
+    file: TFile,
+    save: boolean = true,
+  ) => {
+    if (!element) {
+      return;
+    }
     const view = this.view;
     const app = view.app;
-    element = view.excalidrawAPI.getSceneElements().find((e:ExcalidrawElement) => e.id === element.id);
-    if(!element) return;
+    element = view.excalidrawAPI
+      .getSceneElements()
+      .find(
+        (e: ExcalidrawElement) => e.id === element.id,
+      ) as ExcalidrawEmbeddableElement;
+    if (!element) {
+      return;
+    }
     const path = app.metadataCache.fileToLinktext(
       file,
       view.file.path,
       file.extension === "md",
-    )
+    );
     const link = `[[${path}${subpath}]]`;
-    const ea = getEA(view) as ExcalidrawAutomate;
+    const ea = getEA(view);
     ea.copyViewElementsToEAforEditing([element]);
     ea.getElement(element.id).link = link;
     view.excalidrawData.elementLinks.set(element.id, link);
-    ea.addElementsToView(false, true, true).then(() => ea.destroy());
-  }
-
-  private handleMouseEnter () {
-    clearTimeout(this.menuFadeTimeout);
-    this.containerRef.current?.style.setProperty("opacity", "1");
+    await ea.addElementsToView(false, save, true);
+    ea.destroy();
   };
 
-  private handleMouseLeave () {
+  private handleMouseEnter() {
+    window.clearTimeout(this.menuFadeTimeout);
+    if (this.containerRef.current) {
+      setStyle(this.containerRef.current, {
+        opacity: "1",
+      });
+    }
+  }
+
+  private handleMouseLeave() {
     this.menuFadeTimeout = window.setTimeout(() => {
-      this.containerRef.current?.style.setProperty("opacity", "0.2");
+      if (this.containerRef.current) {
+        setStyle(this.containerRef.current, {
+          opacity: "0.2",
+        });
+      }
     }, 5000);
-  };
-
-  private async actionMarkdownSelection (file: TFile, isExcalidrawFile: boolean, subpath: string, element: ExcalidrawEmbeddableElement) {
-    this.view.updateScene({appState: {activeEmbeddable: null}, storeAction: "update"});
-    const sections = (await this.view.app.metadataCache.blockCache
-      .getForFile({ isCancelled: () => false },file))
-      .blocks.filter((b: any) => b.display && b.node?.type === "heading")
-      .filter((b: any) => !isExcalidrawFile || !MD_EX_SECTIONS.includes(b.display));
-    let values, display;
-    if(isExcalidrawFile) {
-      values = sections.map((b: any) => `#${cleanSectionHeading(b.display)}`);
-      display = sections.map((b: any) => b.display);
-    } else {
-      values = [""].concat(
-        sections.map((b: any) => `#${cleanSectionHeading(b.display)}`)
-      );
-      display = [t("SHOW_ENTIRE_FILE")].concat(
-        sections.map((b: any) => b.display)
-      );
-    }
-    const newSubpath = await ScriptEngine.suggester(
-      this.view.app, display, values, "Select section from document"
-    );
-    if(!newSubpath && newSubpath!=="") return;
-    if (newSubpath !== subpath) {
-      this.updateElement(newSubpath, element, file);
-    }
   }
 
-  private async actionMarkdownBlock (file: TFile, subpath: string, element: ExcalidrawEmbeddableElement) {
-    if(!file) return;
-    this.view.updateScene({appState: {activeEmbeddable: null}, storeAction: "update"});
-    const paragraphs = (await this.view.app.metadataCache.blockCache
-      .getForFile({ isCancelled: () => false },file))
-      .blocks.filter((b: any) => b.display && b.node && 
-        (b.node.type === "paragraph" || b.node.type === "blockquote" || b.node.type === "listItem" || b.node.type === "table" || b.node.type === "callout")
-      );
-    const values = ["entire-file"].concat(paragraphs);
-    const display = [t("SHOW_ENTIRE_FILE")].concat(
-      paragraphs.map((b: any) => `${b.node?.id ? `#^${b.node.id}: ` : ``}${b.display.trim()}`));
-
-    const selectedBlock = await ScriptEngine.suggester(
-      this.view.app, display, values, "Select section from document"
+  private async actionBaseViewSelection(
+    file: TFile,
+    subpath: string,
+    element: ExcalidrawEmbeddableElement,
+  ) {
+    this.view.updateScene({
+      appState: { activeEmbeddable: null },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+    const views = Array.from(
+      (await this.view.app.vault.read(file)).matchAll(/\s*name: (.*)$/gm),
+    ).map((x) => x?.[1]);
+    const values = [""].concat(
+      views.map((b: string) => `#${cleanSectionHeading(b)}`),
     );
-    if(!selectedBlock) return;
+    const display = [t("DO_NOT_PIN_VIEW")].concat(views.map((b: string) => b));
 
-    if(selectedBlock==="entire-file") {
-      if(subpath==="") return;
-      this.updateElement("", element, file);
+    const newSubpath = await ScriptEngine.suggester(
+      this.view.app,
+      display,
+      values,
+      t("SELECT_VIEW"),
+    );
+    if (!newSubpath && newSubpath !== "") {
       return;
     }
-
-    let blockID = selectedBlock.node.id;
-    if(blockID && (`#^${blockID}` === subpath)) return;
-    if (!blockID) {
-      const offset = selectedBlock.node?.position?.end?.offset;
-      if(!offset) return;
-      blockID = nanoid();
-      const fileContents = await this.view.app.vault.cachedRead(file);
-      if(!fileContents) return;
-      await this.view.app.vault.modify(file, fileContents.slice(0, offset) + ` ^${blockID}` + fileContents.slice(offset));
-      await sleep(200); //wait for cache to update
+    if (newSubpath !== subpath) {
+      await this.updateElement(newSubpath, element, file);
     }
-    this.updateElement(`#^${blockID}`, element, file);
   }
 
-  private actionZoomToElement (element: ExcalidrawEmbeddableElement, maxLevel?: number) {
-    if(!element) return;
-    const api = this.view.excalidrawAPI as ExcalidrawImperativeAPI;
-    api.zoomToFit([element], maxLevel ?? this.view.plugin.settings.zoomToFitMaxLevel, 0.1);
+  private async actionMarkdownSelection(
+    file: TFile,
+    isExcalidrawFile: boolean,
+    subpath: string,
+    element: ExcalidrawEmbeddableElement,
+  ) {
+    this.view.updateScene({
+      appState: { activeEmbeddable: null },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+    const newSubpath = await selectMarkdownHeadingSubpath(
+      this.view.app,
+      file,
+      isExcalidrawFile,
+    );
+    if (newSubpath !== null && newSubpath !== subpath) {
+      await this.updateElement(newSubpath, element, file);
+    }
   }
 
-  private actionProperties (element: ExcalidrawEmbeddableElement, file: TFile) {
-    if(!element) return;
-    new EmbeddableSettings(this.view.plugin,this.view,file,element).open();
+  private actionBookmarkPage(element: ExcalidrawEmbeddableElement) {
+    if (!element) {
+      return;
+    }
+    const pdfView = this.view.getEmbeddableLeafElementById(element.id)?.node
+      ?.child;
+    if (!pdfView) {
+      return;
+    }
+    const page = getActivePDFPageNumberFromPDFView(pdfView);
+    if (!page) {
+      return;
+    }
+    const pdfFile: TFile = pdfView?.file;
+    if (!pdfFile) {
+      return;
+    }
+    void this.updateElement(`#page=${page}`, element, pdfFile, false);
   }
 
-  private actionCrop (element: ExcalidrawEmbeddableElement) {
-    if(!element) return;
-    //@ts-ignore
-    this.view.app.commands.executeCommandById("obsidian-excalidraw-plugin:crop-image");
+  private async actionInsertPageAsImage(element: ExcalidrawEmbeddableElement) {
+    if (!element) {
+      return;
+    }
+    const pdfView = this.view.getEmbeddableLeafElementById(element.id)?.node
+      ?.child;
+    if (!pdfView) {
+      return;
+    }
+    const page = getActivePDFPageNumberFromPDFView(pdfView);
+    if (!page) {
+      return;
+    }
+    const pdfFile: TFile = pdfView?.file;
+    if (!pdfFile) {
+      return;
+    }
+    const ea = getEA(this.view);
+    ea.selectElementsInView([]);
+    const x = element.x + element.width + 20;
+    const y = element.y;
+    const path = this.view.app.metadataCache.fileToLinktext(
+      pdfFile,
+      this.view.file.path,
+      false,
+    );
+    const id = await insertImageToView(
+      ea,
+      { x, y },
+      `${path}#page=${page}`,
+      undefined,
+      undefined,
+      false,
+    );
+    ea.selectElementsInView([id]);
+    ea.destroy();
   }
 
-  private actionReload (iframe: HTMLIFrameElement, link: string) {
+  private async actionMarkdownBlock(
+    file: TFile,
+    subpath: string,
+    element: ExcalidrawEmbeddableElement,
+  ) {
+    if (!file) {
+      return;
+    }
+    this.view.updateScene({
+      appState: { activeEmbeddable: null },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+    const newSubpath = await selectMarkdownBlockSubpath(
+      this.view.app,
+      file,
+    );
+    if (newSubpath !== null && newSubpath !== subpath) {
+      await this.updateElement(newSubpath, element, file);
+    }
+  }
+
+  private actionZoomToElement(
+    element: ExcalidrawEmbeddableElement,
+    maxLevel?: number,
+  ) {
+    if (!element) {
+      return;
+    }
+    const api = this.view.excalidrawAPI;
+    api.zoomToFit(
+      [element],
+      maxLevel ?? this.view.plugin.settings.zoomToFitMaxLevel,
+      0.1,
+    );
+  }
+
+  private async actionTogglePropertiesVisible(
+    element: ExcalidrawEmbeddableElement,
+  ) {
+    if (!element) {
+      return;
+    }
+    const mdProps =
+      (element.customData?.mdProps as EmbeddableMDCustomProps) ??
+      this.view.plugin.settings.embeddableMarkdownDefaults;
+    const isVisible = mdProps.propertiesVisible !== false;
+    mdProps.propertiesVisible = !isVisible;
+
+    const ea = getEA(this.view);
+    ea.copyViewElementsToEAforEditing([element]);
+    const eaEl = ea.getElement(element.id);
+    addAppendUpdateCustomData(eaEl, { mdProps });
+    await ea.addElementsToView();
+    ea.destroy();
+
+    // Fetch the updated element reference from the scene
+    const api = this.view.excalidrawAPI;
+    const updatedElement = api
+      .getSceneElements()
+      .find(
+        (e: ExcalidrawElement) => e.id === element.id,
+      ) as ExcalidrawEmbeddableElement;
+
+    // Force an appState update so the React menu component re-renders
+    if (updatedElement) {
+      this.view.updateScene({
+        appState: {
+          activeEmbeddable: {
+            element: updatedElement as unknown as NonDeletedExcalidrawElement,
+            state: "active",
+          },
+        },
+      });
+    }
+  }
+
+  private async actionToggleLockReadingMode(
+    element: ExcalidrawEmbeddableElement,
+  ) {
+    if (!element) {
+      return;
+    }
+    const mdProps =
+      (element.customData?.mdProps as EmbeddableMDCustomProps) ??
+      this.view.plugin.settings.embeddableMarkdownDefaults;
+    const isLocked = !!mdProps.lockedReadingMode;
+    mdProps.lockedReadingMode = !isLocked;
+
+    const ea = getEA(this.view);
+    ea.copyViewElementsToEAforEditing([element]);
+    const eaEl = ea.getElement(element.id);
+    addAppendUpdateCustomData(eaEl, mdProps);
+    await ea.addElementsToView();
+    ea.destroy();
+
+    // Fetch the updated element reference from the scene
+    const api = this.view.excalidrawAPI;
+    const updatedElement = api
+      .getSceneElements()
+      .find(
+        (e: ExcalidrawElement) => e.id === element.id,
+      ) as ExcalidrawEmbeddableElement;
+
+    // Force an appState update so the React menu component re-renders
+    if (updatedElement) {
+      this.view.updateScene({
+        appState: {
+          activeEmbeddable: {
+            element: updatedElement as unknown as NonDeletedExcalidrawElement,
+            state: "active",
+          },
+        },
+      });
+    }
+  }
+
+  private actionProperties(element: ExcalidrawEmbeddableElement, file: TFile) {
+    if (!element) {
+      return;
+    }
+    new EmbeddableSettings(this.view.plugin, this.view, file, element).open();
+  }
+
+  private actionCrop(element: ExcalidrawEmbeddableElement) {
+    if (!element) {
+      return;
+    }
+    this.view.app.commands.executeCommandById(
+      "obsidian-excalidraw-plugin:crop-image",
+    );
+  }
+
+  private actionReload(iframe: HTMLIFrameElement, link: string) {
     iframe.src = link;
   }
 
-  private actionOpen (iframe: HTMLIFrameElement, element: ExcalidrawEmbeddableElement) {
+  private actionOpen(
+    iframe: HTMLIFrameElement,
+    element: ExcalidrawEmbeddableElement,
+  ) {
     openExternalLink(
-      !iframe.src.startsWith("https://www.youtube.com") && !iframe.src.startsWith("https://player.vimeo.com") 
+      !iframe.src.startsWith(URLs.WWW_YOUTUBE_COM) &&
+        !iframe.src.startsWith(URLs.PLAYER_VIMEO_COM)
         ? iframe.src
         : element.link,
-      this.view.app
+      this.view.app,
     );
   }
 
-  private actionCopyCode (element: ExcalidrawEmbeddableElement, link: string) {
-    if(!element) return;
-    navigator.clipboard.writeText(atob(link.split(",")[1]));
+  private actionCopyCode(element: ExcalidrawEmbeddableElement, link: string) {
+    if (!element) {
+      return;
+    }
+    void navigator.clipboard.writeText(atob(link.split(",")[1]));
   }
 
   renderButtons(appState: AppState) {
     const view = this.view;
-    const api = view?.excalidrawAPI as ExcalidrawImperativeAPI;
-    if(!api) return null;
-    if(!view.file) return null;
-    const disableFrameButtons = appState.viewModeEnabled && !view.allowFrameButtonsInViewMode;
-    if(!appState.activeEmbeddable || appState.activeEmbeddable.state !== "active" || disableFrameButtons) {
+    const api = view?.excalidrawAPI;
+    if (!api) {
+      return null;
+    }
+    if (!view.file) {
+      return null;
+    }
+    const disableFrameButtons =
+      appState.viewModeEnabled && !view.allowFrameButtonsInViewMode;
+    if (
+      !appState.activeEmbeddable ||
+      appState.activeEmbeddable.state !== "active" ||
+      disableFrameButtons
+    ) {
       this.menuElementId = null;
-      if(this.menuFadeTimeout) {
-        clearTimeout(this.menuFadeTimeout);
+      if (this.menuFadeTimeout) {
+        window.clearTimeout(this.menuFadeTimeout);
         this.menuFadeTimeout = 0;
       }
       return null;
     }
-    const element = appState.activeEmbeddable?.element as ExcalidrawEmbeddableElement;
-    if(this.menuElementId !== element.id) {
+    const element = appState.activeEmbeddable
+      ?.element as ExcalidrawEmbeddableElement;
+    if (this.menuElementId !== element.id) {
       this.menuElementId = element.id;
       this.handleMouseLeave();
     }
     let link = element.link;
-    if(!link) return null;
+    if (!link) {
+      return null;
+    }
 
     const isExcalidrawiFrame = useDefaultExcalidrawFrame(element);
-    let isObsidianiFrame = Boolean(element.link?.match(REG_LINKINDEX_HYPERLINK));
-  
-    if(!isExcalidrawiFrame && !isObsidianiFrame) {
-      if(link.startsWith("data:text/html")) {
+    let isObsidianiFrame = Boolean(
+      element.link?.match(REG_LINKINDEX_HYPERLINK),
+    );
+
+    if (!isExcalidrawiFrame && !isObsidianiFrame) {
+      if (link.startsWith("data:text/html")) {
         isObsidianiFrame = true;
       } else {
         const res = REGEX_LINK.getRes(element.link).next();
-        if(!res || (!res.value && res.done)) {
+        if (!res || (!res.value && res.done)) {
           return null;
         }
-    
+
         link = REGEX_LINK.getLink(res);
-    
+
         isObsidianiFrame = Boolean(link.match(REG_LINKINDEX_HYPERLINK));
       }
 
-      if(!isObsidianiFrame) {
+      if (!isObsidianiFrame) {
         const { subpath, file } = processLinkText(link, view);
-        if(!file) return;
-        const isMD = file.extension==="md";
+        if (!file) {
+          return;
+        }
+        const isMD = file.extension === "md";
+        const isBase = file.extension === "base";
         const isExcalidrawFile = view.plugin.isExcalidrawFile(file);
-        const isPDF = file.extension==="pdf";
-        const { x, y } = sceneCoordsToViewportCoords( { sceneX: element.x, sceneY: element.y }, appState);
-        const top = `${y-2.5*ROOTELEMENTSIZE-appState.offsetTop}px`;
-        const left = `${x-appState.offsetLeft}px`;
-        
+        const isPDF = file.extension === "pdf";
+        const canConvertToMarkdownImage =
+          isMD &&
+          (!isExcalidrawFile ||
+            file.path !== view.file.path ||
+            (file.path === view.file.path &&
+              Boolean(subpath) &&
+              !subpath.startsWith("#^") &&
+              !MD_EX_SECTIONS.some(
+                (heading) =>
+                  cleanSectionHeading(heading).toLocaleLowerCase() ===
+                  cleanSectionHeading(subpath).toLocaleLowerCase(),
+              )));
+        const { x, y } = sceneCoordsToViewportCoords(
+          { sceneX: element.x, sceneY: element.y },
+          appState,
+        );
+        const top = `${y - 2.5 * ROOTELEMENTSIZE - appState.offsetTop}px`;
+        const left = `${x - appState.offsetLeft}px`;
+        const mdProps =
+          (element.customData?.mdProps as EmbeddableMDCustomProps) ??
+          view.plugin.settings.embeddableMarkdownDefaults;
+        const isLockedReadingMode = !!mdProps.lockedReadingMode;
+        const isPropertiesVisible = mdProps.propertiesVisible !== false;
+        const isGlobalPropertiesHidden =
+          view.app.vault.getConfig("propertiesInDocument") === "hidden";
+
         return (
           <div
             ref={this.containerRef}
@@ -226,10 +480,10 @@ export class EmbeddableMenu {
               left,
               opacity: 1,
             }}
-            onMouseEnter={()=>this.handleMouseEnter()}
-            onPointerDown={()=>this.handleMouseEnter()}
-            onMouseLeave={()=>this.handleMouseLeave()}
-          >  
+            onMouseEnter={() => this.handleMouseEnter()}
+            onPointerDown={() => this.handleMouseEnter()}
+            onMouseLeave={() => this.handleMouseLeave()}
+          >
             <div
               className="Island"
               style={{
@@ -237,11 +491,28 @@ export class EmbeddableMenu {
                 display: "block",
               }}
             >
+              {isBase && (
+                <ActionButton
+                  key={"MarkdownSection"}
+                  title={t("PIN_VIEW")}
+                  action={() =>
+                    void this.actionBaseViewSelection(file, subpath, element)
+                  }
+                  icon={ICONS.ZoomToSection}
+                />
+              )}
               {isMD && (
                 <ActionButton
                   key={"MarkdownSection"}
                   title={t("NARROW_TO_HEADING")}
-                  action={async () => this.actionMarkdownSelection(file, isExcalidrawFile, subpath, element)}
+                  action={() =>
+                    void this.actionMarkdownSelection(
+                      file,
+                      isExcalidrawFile,
+                      subpath,
+                      element,
+                    )
+                  }
                   icon={ICONS.ZoomToSection}
                 />
               )}
@@ -249,14 +520,57 @@ export class EmbeddableMenu {
                 <ActionButton
                   key={"MarkdownBlock"}
                   title={t("NARROW_TO_BLOCK")}
-                  action={async () => this.actionMarkdownBlock(file, subpath, element)}
+                  action={() =>
+                    void this.actionMarkdownBlock(file, subpath, element)
+                  }
                   icon={ICONS.ZoomToBlock}
+                />
+              )}
+              {isMD &&
+                !isExcalidrawFile &&
+                !subpath &&
+                !isGlobalPropertiesHidden && (
+                  <ActionButton
+                    key="TogglePropertiesVisible"
+                    title={
+                      isPropertiesVisible
+                        ? t("HIDE_PROPERTIES")
+                        : t("SHOW_PROPERTIES")
+                    }
+                    action={() =>
+                      void this.actionTogglePropertiesVisible(element)
+                    }
+                    icon={
+                      isPropertiesVisible ? ICONS.File : ICONS.FileCodeCorner
+                    }
+                  />
+                )}
+              {canConvertToMarkdownImage && (
+                <ActionButton
+                  key="ConvertToMarkdownImage"
+                  title={t("CONVERT_EMBEDDABLE_TO_MARKDOWN_IMAGE")}
+                  action={() =>
+                    void view.convertEmbeddableToMarkdownImage(element.id)
+                  }
+                  icon={ICONS.insertImage}
+                />
+              )}
+              {isMD && (
+                <ActionButton
+                  key="LockReadingMode"
+                  title={
+                    isLockedReadingMode
+                      ? t("UNLOCK_READING_MODE")
+                      : t("LOCK_READING_MODE")
+                  }
+                  action={() => void this.actionToggleLockReadingMode(element)}
+                  icon={isLockedReadingMode ? ICONS.Edit : ICONS.Read}
                 />
               )}
               <ActionButton
                 key={"ZoomToElement"}
                 title={t("ZOOM_TO_FIT")}
-                action={() => this.actionZoomToElement(element,30)}
+                action={() => this.actionZoomToElement(element, 30)}
                 icon={ICONS.ZoomToSelectedElement}
               />
               <ActionButton
@@ -266,26 +580,51 @@ export class EmbeddableMenu {
                 icon={ICONS.Properties}
               />
               {isPDF && (
-                <ActionButton
-                key={"Crop"}
-                title={t("CROP_PAGE")}
-                action={() => this.actionCrop(element)}
-                icon={ICONS.Crop}
-              />
+                <>
+                  <ActionButton
+                    key={"Crop"}
+                    title={t("CROP_PAGE")}
+                    action={() => this.actionCrop(element)}
+                    icon={ICONS.Crop}
+                  />
+                  <ActionButton
+                    key={"Bookmark"}
+                    title={t("BOOKMARK_PAGE")}
+                    action={() => this.actionBookmarkPage(element)}
+                    icon={ICONS.Bookmark}
+                  />
+                  <ActionButton
+                    key={"Camera"}
+                    title={t("CAPTURE_PAGE")}
+                    action={() => {
+                      void this.actionInsertPageAsImage(element);
+                    }}
+                    icon={ICONS.Camera}
+                  />
+                </>
               )}
             </div>
-          </div>  
+          </div>
         );
       }
     }
-    if(isObsidianiFrame || isExcalidrawiFrame) {
-      const iframe = isExcalidrawiFrame
-        ? api.getHTMLIFrameElement(element.id)
-        : view.getEmbeddableElementById(element.id);
-      if(!iframe || !iframe.contentWindow) return null;
-      const { x, y } = sceneCoordsToViewportCoords( { sceneX: element.x, sceneY: element.y }, appState);
-      const top = `${y-2.5*ROOTELEMENTSIZE-appState.offsetTop}px`;
-      const left = `${x-appState.offsetLeft}px`;
+    if (isObsidianiFrame || isExcalidrawiFrame) {
+      const iframe = (
+        isExcalidrawiFrame
+          ? (api.getHTMLIFrameElement as (id: string) => HTMLIFrameElement)(
+              element.id,
+            )
+          : view.getEmbeddableElementById(element.id)
+      ) as HTMLIFrameElement;
+      if (!iframe || !iframe.contentWindow) {
+        return null;
+      }
+      const { x, y } = sceneCoordsToViewportCoords(
+        { sceneX: element.x, sceneY: element.y },
+        appState,
+      );
+      const top = `${y - 2.5 * ROOTELEMENTSIZE - appState.offsetTop}px`;
+      const left = `${x - appState.offsetLeft}px`;
       return (
         <div
           ref={this.containerRef}
@@ -295,10 +634,10 @@ export class EmbeddableMenu {
             left,
             opacity: 1,
           }}
-          onMouseEnter={()=>this.handleMouseEnter()}
-          onPointerDown={()=>this.handleMouseEnter()}
-          onMouseLeave={()=>this.handleMouseLeave()}
-        >  
+          onMouseEnter={() => this.handleMouseEnter()}
+          onPointerDown={() => this.handleMouseEnter()}
+          onMouseLeave={() => this.handleMouseLeave()}
+        >
           <div
             className="Island"
             style={{
@@ -306,14 +645,16 @@ export class EmbeddableMenu {
               display: "block",
             }}
           >
-            {(iframe.src !== link) && !iframe.src.startsWith("https://www.youtube.com") && !iframe.src.startsWith("https://player.vimeo.com") && (
-              <ActionButton
-                key={"Reload"}
-                title={t("RELOAD")}
-                action={()=> this.actionReload(iframe, link)}
-                icon={ICONS.Reload}
-              />
-            )}
+            {iframe.src !== link &&
+              !iframe.src.startsWith(URLs.WWW_YOUTUBE_COM) &&
+              !iframe.src.startsWith(URLs.PLAYER_VIMEO_COM) && (
+                <ActionButton
+                  key={"Reload"}
+                  title={t("RELOAD")}
+                  action={() => this.actionReload(iframe, link)}
+                  icon={ICONS.Reload}
+                />
+              )}
             <ActionButton
               key={"Open"}
               title={t("OPEN_IN_BROWSER")}
@@ -341,7 +682,7 @@ export class EmbeddableMenu {
               />
             )}
           </div>
-        </div>  
+        </div>
       );
     }
   }

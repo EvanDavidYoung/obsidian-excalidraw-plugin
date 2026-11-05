@@ -1,254 +1,2686 @@
-import { Notice, RequestUrlResponse } from "obsidian";
+import {
+  arrayBufferToBase64,
+  base64ToArrayBuffer,
+  Notice,
+  RequestUrlResponse,
+  requestUrl,
+} from "obsidian";
+import { URLs } from "src/constants/safeUrls";
 import ExcalidrawPlugin from "src/core/main";
+import {
+  AIImageModelConfig,
+  AIImageUsageEntry,
+  AITextUsageEntry,
+  AIUsageData,
+  ExcalidrawAISettings,
+  AIFileInput,
+  AIImageInput,
+  AIProvider,
+  AIProviderProfile,
+  AIRequest,
+  AIRequestMessage,
+  AIRequestMessagePart,
+  GPTCompletionRequest,
+} from "src/types/AIUtilTypes";
+import {
+  decryptProviderProfiles,
+} from "src/utils/settingsKeyObfuscation";
+import {
+  getGeminiImageRequestConfig,
+  getGeminiSupportedSizes,
+} from "src/utils/geminiImageModelUtils";
+import { log } from "./debugHelper";
+import { strictArrayBuffer } from "./obsidianUtils";
 
-type MessageContent =
-  | string
-  | (string | { type: "image_url"; image_url: string })[];
-
-export type GPTCompletionRequest = {
-  model: string;
-  messages?: {
-    role?: "system" | "user" | "assistant" | "function";
-    content?: MessageContent;
-    name?: string | undefined;
-  }[];
-  functions?: any[] | undefined;
-  function_call?: any | undefined;
-  stream?: boolean | undefined;
-  temperature?: number | undefined;
-  top_p?: number | undefined;
-  max_tokens?: number | undefined;
-  n?: number | undefined;
-  best_of?: number | undefined;
-  frequency_penalty?: number | undefined;
-  presence_penalty?: number | undefined;
-  logit_bias?:
-    | {
-        [x: string]: number;
-      }
-    | undefined;
-  stop?: (string[] | string) | undefined;
-  size?: string;
-  quality?: "standard" | "hd";
-  prompt?: string;
-  image?: string;
-  mask?: string;
+type NormalizedBinaryInput = {
+  source: string;
+  mimeType?: string;
+  filename?: string;
+  detail?: "low" | "high" | "auto";
 };
 
-export type AIRequest = {
-  image?: string;
-  text?: string;
-  instruction?: string;
-  systemPrompt?: string;
-  imageGenerationProperties?: {
-    size?: string; //depends on model
-    quality?: "standard" | "hd"; //depends on model
-    n?: number; //dall-e-3 only accepts 1
-    mask?: string; //dall-e-2 only (image editing)
+type NormalizedMessagePart =
+  | { type: "text"; text: string }
+  | { type: "image"; image: NormalizedBinaryInput }
+  | { type: "file"; file: NormalizedBinaryInput }
+  | { type: "audio"; audio: NormalizedBinaryInput };
+
+type NormalizedMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | NormalizedMessagePart[];
+};
+
+type ResolvedModelConfig = {
+  provider: AIProvider;
+  apiKey: string;
+  baseURL: string;
+  endpoint: string;
+  model: string;
+  multimodalSupport: boolean;
+};
+
+type ResolvedImageConfig = ResolvedModelConfig & {
+  supportedSizes: string[];
+  supportsPromptImageTransforms: boolean;
+  supportsMaskImageEdits: boolean;
+};
+
+type ResolvedAIConfig = {
+  text: ResolvedModelConfig;
+  image: ResolvedImageConfig;
+  maxTokens: number;
+  maxOutgoingTokens: number;
+};
+
+type GenerateAITextOptions = {
+  plugin?: ExcalidrawPlugin;
+  signal?: AbortSignal;
+};
+
+type GenerateAITextResult = {
+  response: RequestUrlResponse;
+  json: Record<string, unknown>;
+  content: string;
+  rateLimit: number | null;
+  rateLimitRemaining: number | null;
+};
+
+export type AIGeneratedImage = {
+  url?: string;
+  b64_json?: string;
+  dataURL?: string;
+  mimeType?: string;
+  revisedPrompt?: string;
+};
+
+export type GenerateAIImageResult = {
+  response: RequestUrlResponse;
+  json: Record<string, unknown>;
+  images: AIGeneratedImage[];
+  firstImage: AIGeneratedImage | null;
+  revisedPrompt: string;
+};
+
+export type AIChatSession = {
+  getMessages: () => AIRequestMessage[];
+  reset: () => void;
+  send: (
+    message: string | AIRequestMessage | AIRequestMessagePart[],
+    requestOverrides?: Omit<AIRequest, "messages">,
+  ) => Promise<GenerateAITextResult>;
+};
+
+const AI_DEBUG_PREFIX = "[Excalidraw AI Debug]";
+const AI_DEBUG_MAX_LENGTH = 8000;
+
+// ---------------------------------------------------------------------------
+// Session-scoped AI usage metering (not persisted across Obsidian restarts)
+// ---------------------------------------------------------------------------
+
+const _textUsageStore: Record<string, AITextUsageEntry> = {};
+const _imageUsageStore: Record<string, AIImageUsageEntry> = {};
+
+const recordAITextUsage = (
+  modelId: string,
+  inputTokens: number,
+  outputTokens: number,
+): void => {
+  if (!modelId || (inputTokens === 0 && outputTokens === 0)) {
+    return;
+  }
+  const existing = _textUsageStore[modelId];
+  if (existing) {
+    existing.inputTokens += inputTokens;
+    existing.outputTokens += outputTokens;
+  } else {
+    _textUsageStore[modelId] = { inputTokens, outputTokens };
+  }
+};
+
+const recordAIImageGenerationUsage = (
+  modelId: string,
+  count: number = 1,
+): void => {
+  if (!modelId || count <= 0) {
+    return;
+  }
+  const existing = _imageUsageStore[modelId];
+  if (existing) {
+    existing.generations += count;
+  } else {
+    _imageUsageStore[modelId] = { generations: count };
+  }
+};
+
+/**
+ * Returns accumulated AI token usage for the current Obsidian session.
+ * Usage is not persisted and resets when Obsidian is restarted.
+ */
+export const getAIUsage = (): AIUsageData => {
+  const textModels = { ..._textUsageStore };
+  const imageModels = { ..._imageUsageStore };
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalImageGenerations = 0;
+
+  for (const entry of Object.values(textModels)) {
+    totalInputTokens += entry.inputTokens;
+    totalOutputTokens += entry.outputTokens;
+  }
+  for (const entry of Object.values(imageModels)) {
+    totalImageGenerations += entry.generations;
+  }
+
+  return {
+    textModels,
+    imageModels,
+    totalInputTokens,
+    totalOutputTokens,
+    totalImageGenerations,
   };
 };
 
-const handleImageEditPrompt = async (request: AIRequest) : Promise<RequestUrlResponse> => {
-  const plugin: ExcalidrawPlugin = window.ExcalidrawAutomate.plugin;
-  const {
-    openAIAPIToken,
-    openAIImageEditsURL,
-  } = plugin.settings;
-  const { image, text, imageGenerationProperties} = request;
-
-  const body = new FormData();
-  body.append("model", "dall-e-2");
-  text.trim() !== "" && body.append("prompt", text);
-
-  if (image) {
-    const imageBlob = await fetch(image).then((res) => res.blob());
-    body.append('image', imageBlob, 'image.png');
+/**
+ * Resets the session-scoped AI usage meter. Primarily for testing and tooling.
+ */
+export const resetAIUsage = (): void => {
+  for (const key of Object.keys(_textUsageStore)) {
+    delete _textUsageStore[key];
   }
-
-  if (imageGenerationProperties.mask) {
-    const maskBlob = await fetch(imageGenerationProperties.mask).then((res) => res.blob());
-    body.append('mask', maskBlob, 'masik.png');
+  for (const key of Object.keys(_imageUsageStore)) {
+    delete _imageUsageStore[key];
   }
+};
 
-  imageGenerationProperties.size && body.append("size", imageGenerationProperties.size);
-  imageGenerationProperties.n && body.append("n", String(imageGenerationProperties.n));
+/**
+ * Formats total session token usage as a compact label suitable for buttons.
+ * Format: "AI Usage: 355k/23k" (input tokens / output tokens).
+ * Image generations are appended when present, e.g. "+ 3 imgs".
+ */
+export const formatAIUsageLabel = (usage?: AIUsageData): string => {
+  const data = usage ?? getAIUsage();
+  const fmt = (n: number): string => {
+    if (n === 0) {
+      return "0";
+    }
+    if (n >= 1_000_000) {
+      return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+    }
+    if (n >= 1_000) {
+      return `${Math.round(n / 1000)}k`;
+    }
+    return String(n);
+  };
+  const tokenPart = `${fmt(data.totalInputTokens)}/${fmt(data.totalOutputTokens)}`;
+  const imgPart =
+    data.totalImageGenerations > 0
+      ? ` + ${data.totalImageGenerations} img${data.totalImageGenerations !== 1 ? "s" : ""}`
+      : "";
+  return `AI Usage: ${tokenPart}${imgPart}`;
+};
+
+// ---------------------------------------------------------------------------
+
+const stringifyDebugValue = (value: unknown): string => {
+  if (value === undefined) {
+    return "<undefined>";
+  }
+  if (value === null) {
+    return "<null>";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
 
   try {
-    //https://platform.openai.com/docs/api-reference/images
-    const resp = await fetch(
-       openAIImageEditsURL,
-      {
-        method: "post",
-        body,
-        headers: {
-          Authorization: `Bearer ${openAIAPIToken}`,
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const trimDebugText = (
+  value: string,
+  maxLength: number = AI_DEBUG_MAX_LENGTH,
+): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}\n...[truncated ${value.length - maxLength} chars]`;
+};
+
+const debugValueLine = (label: string, value: unknown): string => {
+  const stringValue = trimDebugText(stringifyDebugValue(value));
+  return `${label}: ${stringValue}`;
+};
+
+const isAIVerboseLoggingEnabled = (plugin?: ExcalidrawPlugin | null): boolean =>
+  Boolean(plugin?.settings?.aiVerboseLogging);
+
+const logAIDebug = (
+  plugin: ExcalidrawPlugin | null | undefined,
+  label: string,
+  lines: string[],
+): void => {
+  if (!isAIVerboseLoggingEnabled(plugin)) {
+    return;
+  }
+
+  log(`${AI_DEBUG_PREFIX} ${label}\n${lines.join("\n")}`);
+};
+
+export const getJsonErrorMessage = (json: unknown): string | undefined => {
+  if (typeof json !== "object" || json === null || !("error" in json)) {
+    return undefined;
+  }
+
+  const error = (json as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null || !("message" in error)) {
+    return undefined;
+  }
+
+  const message = (error as { message?: unknown }).message;
+  return message == null ? undefined : String(message);
+};
+
+type JsonObject = Record<string, unknown>;
+
+const isJsonObject = (value: unknown): value is JsonObject =>
+  typeof value === "object" && value !== null;
+
+const getJsonObject = (value: unknown, key: string): JsonObject | null => {
+  if (!isJsonObject(value)) {
+    return null;
+  }
+  const nestedValue = value[key];
+  return isJsonObject(nestedValue) ? nestedValue : null;
+};
+
+const getJsonArray = (value: unknown, key: string): unknown[] => {
+  if (!isJsonObject(value)) {
+    return [];
+  }
+  const nestedValue = value[key];
+  return Array.isArray(nestedValue) ? nestedValue : [];
+};
+
+const getFirstChoice = (json: JsonObject): JsonObject | null => {
+  const firstChoice = getJsonArray(json, "choices")[0];
+  return isJsonObject(firstChoice) ? firstChoice : null;
+};
+
+const getFirstChoiceContent = (json: JsonObject): string => {
+  const message = getJsonObject(getFirstChoice(json), "message");
+  const content = message?.content;
+  return typeof content === "string" ? content : "";
+};
+
+const getFirstChoiceFinishReason = (json: JsonObject): string => {
+  const finishReason = getFirstChoice(json)?.finish_reason;
+  return typeof finishReason === "string" ? finishReason : "";
+};
+
+const getReasoningTokenCount = (json: JsonObject): number => {
+  const usage = getJsonObject(json, "usage");
+  const completionTokensDetails = getJsonObject(
+    usage,
+    "completion_tokens_details",
+  );
+  const value = completionTokensDetails?.reasoning_tokens;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+};
+
+const shouldRetryEmptyMultimodalReasoningResponse = (
+  request: AIRequest,
+  response: RequestUrlResponse,
+): boolean => {
+  if (!requestHasImageInput(request) || request.imageGenerationProperties) {
+    return false;
+  }
+
+  const json = response?.json;
+  if (!json || json.error) {
+    return false;
+  }
+
+  const content = getFirstChoiceContent(json).trim();
+  const finishReason = getFirstChoiceFinishReason(json);
+  const reasoningTokens = getReasoningTokenCount(json);
+
+  return content === "" && finishReason === "length" && reasoningTokens > 0;
+};
+
+const getEmptyMultimodalRetryMaxTokens = (request: AIRequest): number => {
+  const currentMaxTokens = request.maxTokens ?? 0;
+  return Math.min(Math.max(currentMaxTokens * 2, 8192), 16384);
+};
+
+const DEFAULT_PROVIDER_BASE_URLS: Record<AIProvider, string> = {
+  openai: URLs.API_OPENAI_COM_V1,
+  anthropic: URLs.API_ANTHROPIC_COM_V1,
+  google: URLs.GENERATIVELANGUAGE_GOOGLEAPIS_COM_V1BETA,
+  xai: URLs.API_X_AI_V1,
+  "openai-compatible": URLs.API_OPENAI_COM_V1,
+};
+
+const ANTHROPIC_VERSION = "2023-06-01";
+
+const getPlugin = (plugin?: ExcalidrawPlugin): ExcalidrawPlugin | null => {
+  return plugin ?? window?.ExcalidrawAutomate?.plugin ?? null;
+};
+
+const getAssetSource = (asset?: AIImageInput | AIFileInput): string => {
+  if (!asset) {
+    return null;
+  }
+  if (typeof asset === "string") {
+    return asset;
+  }
+  if ("url" in asset) {
+    return asset.url;
+  }
+  if ("dataURL" in asset) {
+    return asset.dataURL;
+  }
+  return null;
+};
+
+const getImageURL = (image?: AIImageInput | AIFileInput): string => {
+  return getAssetSource(image);
+};
+
+const getAssetMimeType = (
+  asset?: AIImageInput | AIFileInput,
+): string | undefined => {
+  if (!asset || typeof asset === "string") {
+    return undefined;
+  }
+  return asset.mimeType;
+};
+
+const getAssetFilename = (
+  asset?: AIImageInput | AIFileInput,
+): string | undefined => {
+  if (!asset || typeof asset === "string") {
+    return undefined;
+  }
+  return asset.filename;
+};
+
+const getImageDetail = (
+  image?: AIImageInput,
+): "low" | "high" | "auto" | undefined => {
+  if (!image || typeof image === "string") {
+    return undefined;
+  }
+  return image.detail;
+};
+
+const normalizeBinaryInput = (
+  asset: AIImageInput | AIFileInput,
+): NormalizedBinaryInput | null => {
+  const source = getAssetSource(asset);
+  if (!source) {
+    return null;
+  }
+  return {
+    source,
+    mimeType: getAssetMimeType(asset),
+    filename: getAssetFilename(asset),
+    ...(getImageDetail(asset) ? { detail: getImageDetail(asset) } : {}),
+  };
+};
+
+const normalizeBaseURL = (value: string): string => {
+  return (value ?? "").trim().replace(/\/+$/, "");
+};
+
+const AI_BASE_URL_SUFFIXES = [
+  "/chat/completions",
+  "/messages",
+  "/images/generations",
+  "/images/edits",
+  "/images/variations",
+];
+
+const joinURL = (baseURL: string, path: string): string => {
+  return `${normalizeBaseURL(baseURL)}/${path.replace(/^\/+/, "")}`;
+};
+
+const inferConfiguredBaseURL = (url: string): string => {
+  const normalized = normalizeBaseURL(url);
+  if (!normalized) {
+    return "";
+  }
+
+  const matchingSuffix = AI_BASE_URL_SUFFIXES.find((suffix) =>
+    normalized.endsWith(suffix),
+  );
+  return matchingSuffix
+    ? normalized.slice(0, -matchingSuffix.length)
+    : normalized;
+};
+
+const getProviderProfiles = (
+  plugin: ExcalidrawPlugin,
+): Record<string, AIProviderProfile> => {
+  return plugin.settings.aiProviderProfiles &&
+    Object.keys(plugin.settings.aiProviderProfiles).length > 0
+    ? decryptProviderProfiles(plugin.settings.aiProviderProfiles)
+    : {
+        OpenAI: {
+          provider: "openai",
+          apiKey: "",
+          baseURL: URLs.API_OPENAI_COM_V1,
         },
-      }
-    );
-    if(!resp) return null;
-    return {
-      status: resp.status,
-      headers: resp.headers as any,
-      text: null,
-      json: await resp.json(),
-      arrayBuffer: null,
-    };
-  } catch (e) {
-    console.log(e);
-  }
-  return null;
-}
-
-const handleGenericPrompt = async (request: AIRequest) : Promise<RequestUrlResponse> => {
-  const plugin: ExcalidrawPlugin = window.ExcalidrawAutomate.plugin;
-  const {
-    openAIAPIToken,
-    openAIDefaultTextModel,
-    openAIDefaultVisionModel,
-    openAIURL,
-    openAIImageGenerationURL,
-    openAIDefaultImageGenerationModel,
-  } = plugin.settings;
-  const { image, text, instruction, systemPrompt, imageGenerationProperties} = request;
-  const isImageGeneration = Boolean(imageGenerationProperties);
-    const requestType = isImageGeneration ? "dall-e" : (image ? "image" : "text");
-  let body: GPTCompletionRequest;
-
-  switch (requestType) {
-    case "text":
-      body = {
-        model: openAIDefaultTextModel,
-        max_tokens: 4096,
-        messages: [
-          ...(systemPrompt && systemPrompt.trim() !=="" ? [{role: "system" as const,content: systemPrompt}] : []),
-          {
-            role: "user",
-            content: text,
-          },
-          ...(instruction && instruction.trim() !=="" ? [{role: "user" as const,content: instruction}] : []),
-        ],
-      };          
-      break;
-    case "image":
-      body = {
-        model: openAIDefaultVisionModel,
-        max_tokens: 4096,
-        messages: [
-          ...(systemPrompt && systemPrompt.trim() !=="" ? [{role: "system" as const,content: systemPrompt}] : []),
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: image,
-              },
-              ...(text ? [text] : []),
-              ...(instruction && instruction.trim() !== "" ? [instruction] : []),
-            ],
-          }
-        ],
-      };                
-      break;
-    case "dall-e":
-      body = {
-        model: openAIDefaultImageGenerationModel,
-        prompt: text,
-        ...imageGenerationProperties
       };
-      break;
-    default:
-      return null;
-  }
+};
 
-  try {
-    //https://platform.openai.com/docs/api-reference/images
-    const resp = await fetch (isImageGeneration ? openAIImageGenerationURL : openAIURL, {
-      method: "post",
-      //@ts-ignore
-      contentType: "application/json",
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openAIAPIToken}`,
-      }
-    });
-    if(!resp) return null;
+const getDefaultProviderProfileId = (plugin: ExcalidrawPlugin): string => {
+  const profiles = getProviderProfiles(plugin);
+  return Object.keys(profiles)[0] ?? "OpenAI";
+};
+
+const requestHasImageInput = (request: AIRequest): boolean =>
+  Boolean(
+    request.image ||
+    request.messages?.some(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((part) => part.type === "image"),
+    ),
+  );
+
+const getModelConfigs = (plugin: ExcalidrawPlugin, kind: "text" | "image") => {
+  if (kind === "text") {
+    if (
+      plugin.settings.aiTextModelConfigs &&
+      Object.keys(plugin.settings.aiTextModelConfigs).length > 0
+    ) {
+      return plugin.settings.aiTextModelConfigs;
+    }
+
+    const defaultTextModel =
+      plugin.settings.aiDefaultTextModel ||
+      "gpt-5-mini";
+
     return {
-      status: resp.status,
-      headers: resp.headers as any,
-      text: null,
-      json: await resp.json(),
-      arrayBuffer: null,
-    };
-  } catch (e) {
-    console.log(e);
-  }
-  return null;
-
-  /*
-  //does not seem to work on Android :(
-  try {
-    //https://platform.openai.com/docs/api-reference/images
-    const resp = await requestUrl ({
-      url:  isImageGeneration ? openAIImageGenerationURL : openAIURL,
-      method: "post",
-      contentType: "application/json",
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openAIAPIToken}`,
+      [defaultTextModel]: {
+        providerId: getDefaultProviderProfileId(plugin),
+        model: defaultTextModel,
+        endpoint: "",
+        multimodalSupport: true,
       },
-      throw: false
-    });
-    return resp;
-  } catch (e) {
-    console.log(e);
+    };
   }
-  return null;*/
-}
 
+  const defaultImageModel =
+    plugin.settings.aiDefaultImageGenerationModel ||
+    "gpt-image-1";
 
-export const postOpenAI = async (request: AIRequest) : Promise<RequestUrlResponse> => {
-  const plugin: ExcalidrawPlugin = window.ExcalidrawAutomate.plugin;
-  const { openAIAPIToken } = plugin.settings;
-  const { image, imageGenerationProperties} = request;
-  const isImageGeneration = Boolean(imageGenerationProperties);
-  const isImageVariationOrEditing = isImageGeneration && (Boolean(imageGenerationProperties.mask) || Boolean(image));
+  return plugin.settings.aiImageModelConfigs &&
+    Object.keys(plugin.settings.aiImageModelConfigs).length > 0
+    ? plugin.settings.aiImageModelConfigs
+    : {
+        [defaultImageModel]: {
+          providerId: getDefaultProviderProfileId(plugin),
+          model: defaultImageModel,
+          supportedSizes: ["1024x1024"],
+          supportsPromptImageTransforms: true,
+          supportsMaskImageEdits: true,
+        },
+      };
+};
 
-  if(openAIAPIToken === "") {
-    new Notice("OpenAI API Token is not set. Please set it in plugin settings.");
+const getSelectedModelConfigId = (
+  plugin: ExcalidrawPlugin,
+  kind: "text" | "image",
+  request: AIRequest,
+  requireMultimodal: boolean = false,
+) => {
+  const configs = getModelConfigs(plugin, kind);
+
+  if (kind === "text") {
+    const configuredIds = requireMultimodal
+      ? [
+          request.textModelId,
+          plugin.settings.aiDefaultMultimodalModel,
+          plugin.settings.aiDefaultTextModel,
+        ]
+      : [
+          request.textModelId,
+          plugin.settings.aiDefaultTextModel,
+          plugin.settings.aiDefaultMultimodalModel,
+        ];
+
+    const normalizedConfiguredIds = configuredIds.filter(Boolean);
+
+    const configuredId = normalizedConfiguredIds.find((modelId) => {
+      const config = configs[modelId];
+      return (
+        config && (!requireMultimodal || config.multimodalSupport !== false)
+      );
+    });
+    if (configuredId) {
+      return configuredId;
+    }
+
+    if (requireMultimodal) {
+      const multimodalModelId = Object.entries(configs).find(
+        ([, config]) => config.multimodalSupport !== false,
+      )?.[0];
+      if (multimodalModelId) {
+        return multimodalModelId;
+      }
+    }
+
+    return Object.keys(configs)[0];
+  }
+
+  const configuredId =
+    request.imageModelId || plugin.settings.aiDefaultImageGenerationModel;
+  return configs[configuredId] ? configuredId : Object.keys(configs)[0];
+};
+
+const getDerivedTextEndpoint = (
+  provider: AIProvider,
+  baseURL: string,
+  endpoint?: string,
+): string => {
+  if (provider === "google") {
+    return endpoint || baseURL;
+  }
+  if (provider === "anthropic") {
+    return endpoint || joinURL(baseURL, "/messages");
+  }
+  return endpoint || joinURL(baseURL, "/chat/completions");
+};
+
+const getResolvedModelConfig = (
+  plugin: ExcalidrawPlugin,
+  kind: "text" | "image",
+  request: AIRequest,
+): ResolvedModelConfig | ResolvedImageConfig => {
+  const configs = getModelConfigs(plugin, kind);
+  const selectedConfigId = getSelectedModelConfigId(
+    plugin,
+    kind,
+    request,
+    kind === "text" && requestHasImageInput(request),
+  );
+  const selectedConfig = configs[selectedConfigId] || Object.values(configs)[0];
+  const profile =
+    getProviderProfiles(plugin)[selectedConfig?.providerId] ||
+    Object.values(getProviderProfiles(plugin))[0];
+  const provider =
+    request.provider ??
+    profile?.provider ??
+    "openai";
+  const hasRequestBaseURL = Boolean(request.baseURL?.trim());
+  const baseURL = normalizeBaseURL(
+    (hasRequestBaseURL ? inferConfiguredBaseURL(request.baseURL) : "") ||
+      inferConfiguredBaseURL(profile?.baseURL) ||
+      DEFAULT_PROVIDER_BASE_URLS[provider],
+  );
+  const endpoint =
+    kind === "image"
+      ? ""
+      : hasRequestBaseURL
+        ? getDerivedTextEndpoint(provider, baseURL)
+        : getDerivedTextEndpoint(
+            provider,
+            baseURL,
+            selectedConfig?.endpoint?.trim(),
+          );
+
+  const result: ResolvedModelConfig = {
+    provider,
+    apiKey:
+      request.apiKey?.trim() ||
+      profile?.apiKey ||
+      "",
+    baseURL,
+    endpoint,
+    model: request.model?.trim() || selectedConfig?.model || "",
+    multimodalSupport: selectedConfig?.multimodalSupport !== false,
+  };
+
+  if (kind !== "image") {
+    return result;
+  }
+
+  const imageConfig = selectedConfig as AIImageModelConfig;
+  const resolvedModel = request.model?.trim() || selectedConfig?.model || "";
+  const geminiSupportedSizes = getGeminiSupportedSizes(provider, resolvedModel);
+  return {
+    ...result,
+    supportedSizes:
+      geminiSupportedSizes.length > 0
+        ? geminiSupportedSizes
+        : [...(imageConfig.supportedSizes ?? ["1024x1024"])],
+    supportsPromptImageTransforms:
+      imageConfig.supportsPromptImageTransforms ?? true,
+    supportsMaskImageEdits:
+      imageConfig.supportsMaskImageEdits ?? true,
+  };
+};
+
+const resolveAIConfig = (
+  request: AIRequest,
+  plugin?: ExcalidrawPlugin,
+): ResolvedAIConfig | null => {
+  const resolvedPlugin = getPlugin(plugin);
+  if (!resolvedPlugin) {
     return null;
   }
 
-  if(isImageVariationOrEditing) {
-    return await handleImageEditPrompt(request);
-  }
-  return await handleGenericPrompt(request);
+  return {
+    text: getResolvedModelConfig(resolvedPlugin, "text", request),
+    image: getResolvedModelConfig(
+      resolvedPlugin,
+      "image",
+      request,
+    ) as ResolvedImageConfig,
+    maxTokens: resolvedPlugin.settings.aiDefaultMaxResponseTokens,
+    maxOutgoingTokens: resolvedPlugin.settings.aiDefaultMaxOutgoingTokens || 0,
+  };
+};
 
-}
+const createSyntheticResponse = (
+  message: string,
+  status: number = 400,
+  extraJson: Record<string, unknown> = {},
+): RequestUrlResponse => ({
+  status,
+  headers: {},
+  text: null,
+  json: {
+    error: {
+      message,
+    },
+    ...extraJson,
+  },
+  arrayBuffer: null,
+});
+
+const getHeaderValue = (
+  headers: RequestUrlResponse["headers"],
+  key: string,
+): string | null => {
+  if (!headers) {
+    return null;
+  }
+  const normalizedKey = key.toLowerCase();
+  const headerObject = headers;
+  return headerObject[key] ?? headerObject[normalizedKey] ?? null;
+};
+
+const requestUrlWithAbort = async (
+  request: {
+    url: string;
+    method?: string;
+    headers?: Record<string, string>;
+    contentType?: string;
+    body?: string | ArrayBuffer;
+  },
+  signal?: AbortSignal,
+): Promise<RequestUrlResponse> => {
+  if (signal?.aborted) {
+    return createSyntheticResponse("Request aborted", 499);
+  }
+
+  const requestPromise = requestUrl({
+    ...request,
+    throw: false,
+  });
+
+  if (!signal) {
+    return await requestPromise;
+  }
+
+  return await Promise.race([
+    requestPromise,
+    new Promise<RequestUrlResponse>((resolve) => {
+      signal.addEventListener(
+        "abort",
+        () => resolve(createSyntheticResponse("Request aborted", 499)),
+        { once: true },
+      );
+    }),
+  ]);
+};
+
+const usesMaxCompletionTokens = (model: string): boolean => {
+  if (!model) {
+    return false;
+  }
+  return ["gpt-4o", "gpt-5", "o1", "o3", "o4"].some((prefix) =>
+    model.includes(prefix),
+  );
+};
+
+const getTextLimitPayload = (
+  model: string,
+  maxTokens: number,
+): { max_tokens?: number; max_completion_tokens?: number } => {
+  if (!maxTokens || maxTokens <= 0) {
+    return {};
+  }
+  return usesMaxCompletionTokens(model)
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens };
+};
+
+const normalizeMessagePart = (
+  part: AIRequestMessagePart,
+): NormalizedMessagePart | null => {
+  if (part.type === "text") {
+    return part.text?.trim() === "" ? null : { type: "text", text: part.text };
+  }
+
+  if (part.type === "image") {
+    const image = normalizeBinaryInput(part.image);
+    return image ? { type: "image", image } : null;
+  }
+
+  if (part.type === "file") {
+    const file = normalizeBinaryInput(part.file);
+    return file ? { type: "file", file } : null;
+  }
+
+  const audio = normalizeBinaryInput(part.audio);
+  return audio ? { type: "audio", audio } : null;
+};
+
+const normalizeRequestMessage = (
+  message: AIRequestMessage,
+): NormalizedMessage | null => {
+  if (!message) {
+    return null;
+  }
+  if (typeof message.content === "string") {
+    return message.content.trim() === ""
+      ? null
+      : { role: message.role, content: message.content };
+  }
+
+  const parts = message.content.map(normalizeMessagePart).filter(Boolean);
+
+  return parts.length === 0 ? null : { role: message.role, content: parts };
+};
+
+const buildNormalizedMessages = (request: AIRequest): NormalizedMessage[] => {
+  const messages =
+    request.messages?.map(normalizeRequestMessage).filter(Boolean) ?? [];
+
+  if (messages.length > 0) {
+    if (request.systemPrompt?.trim()) {
+      messages.unshift({
+        role: "system",
+        content: request.systemPrompt.trim(),
+      });
+    }
+    if (request.text?.trim()) {
+      messages.push({ role: "user", content: request.text.trim() });
+    }
+    if (request.instruction?.trim()) {
+      messages.push({ role: "user", content: request.instruction.trim() });
+    }
+    return messages;
+  }
+
+  const builtMessages: NormalizedMessage[] = [];
+  if (request.systemPrompt?.trim()) {
+    builtMessages.push({
+      role: "system",
+      content: request.systemPrompt.trim(),
+    });
+  }
+
+  const image = normalizeBinaryInput(request.image);
+  if (image) {
+    const content: NormalizedMessagePart[] = [{ type: "image", image }];
+    if (request.text?.trim()) {
+      content.push({ type: "text", text: request.text.trim() });
+    }
+    if (request.instruction?.trim()) {
+      content.push({ type: "text", text: request.instruction.trim() });
+    }
+    builtMessages.push({ role: "user", content });
+    return builtMessages;
+  }
+
+  if (request.text?.trim()) {
+    builtMessages.push({ role: "user", content: request.text.trim() });
+  }
+  if (request.instruction?.trim()) {
+    builtMessages.push({ role: "user", content: request.instruction.trim() });
+  }
+
+  return builtMessages;
+};
+
+const estimateTokenCount = (text: string): number => {
+  return Math.ceil((text ?? "").length / 4);
+};
+
+const trimTextToTokenBudget = (text: string, budget: number): string => {
+  if (!text || budget <= 0) {
+    return "";
+  }
+  const maxChars = Math.max(1, budget * 4);
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `[truncated]\n${text.slice(-maxChars)}`;
+};
+
+const limitContentByOutgoingTokenBudget = (
+  content: string | NormalizedMessagePart[],
+  budget: number,
+): { content: string | NormalizedMessagePart[] | null; remaining: number } => {
+  if (typeof content === "string") {
+    if (budget <= 0) {
+      return { content: null, remaining: 0 };
+    }
+    const tokenCount = estimateTokenCount(content);
+    if (tokenCount <= budget) {
+      return { content, remaining: budget - tokenCount };
+    }
+    return {
+      content: trimTextToTokenBudget(content, budget),
+      remaining: 0,
+    };
+  }
+
+  const limitedParts: NormalizedMessagePart[] = [];
+  let remaining = budget;
+
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (part.type !== "text") {
+      limitedParts.unshift(part);
+      continue;
+    }
+
+    if (remaining <= 0) {
+      continue;
+    }
+
+    const tokenCount = estimateTokenCount(part.text);
+    if (tokenCount <= remaining) {
+      limitedParts.unshift(part);
+      remaining -= tokenCount;
+      continue;
+    }
+
+    const trimmed = trimTextToTokenBudget(part.text, remaining);
+    if (trimmed) {
+      limitedParts.unshift({ type: "text", text: trimmed });
+    }
+    remaining = 0;
+  }
+
+  return {
+    content: limitedParts.length > 0 ? limitedParts : null,
+    remaining,
+  };
+};
+
+const applyOutgoingTokenBudget = (
+  messages: NormalizedMessage[],
+  maxOutgoingTokens: number,
+): NormalizedMessage[] => {
+  if (!maxOutgoingTokens || maxOutgoingTokens <= 0) {
+    return messages;
+  }
+
+  const limitedMessages: NormalizedMessage[] = [];
+  let remaining = maxOutgoingTokens;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    const limited = limitContentByOutgoingTokenBudget(
+      message.content,
+      remaining,
+    );
+    if (!limited.content) {
+      continue;
+    }
+    limitedMessages.unshift({
+      role: message.role,
+      content: limited.content,
+    });
+    remaining = limited.remaining;
+  }
+
+  return limitedMessages.length > 0 ? limitedMessages : messages.slice(-1);
+};
+
+const toOpenAIContent = (content: string | NormalizedMessagePart[]) => {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content
+    .filter((part) => part.type === "text" || part.type === "image")
+    .map((part) =>
+      part.type === "text"
+        ? { type: "text" as const, text: part.text }
+        : {
+            type: "image_url" as const,
+            image_url: {
+              url: part.image.source,
+              detail: part.image.detail ?? ("high" as const),
+            },
+          },
+    );
+};
+
+const toOpenAIMessages = (
+  messages: NormalizedMessage[],
+): GPTCompletionRequest["messages"] => {
+  return messages.map((message) => ({
+    role: message.role,
+    content: toOpenAIContent(message.content),
+  }));
+};
+
+const parseDataURL = (
+  dataURL: string,
+): { mediaType: string; data: string } | null => {
+  const match = dataURL.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    mediaType: match[1],
+    data: match[2],
+  };
+};
+
+const getFilenameFromMimeType = (
+  mimeType: string,
+  fallback: string,
+): string => {
+  const normalized = (mimeType ?? "").toLowerCase();
+  if (normalized.includes("png")) {
+    return `${fallback}.png`;
+  }
+  if (normalized.includes("jpeg") || normalized.includes("jpg")) {
+    return `${fallback}.jpg`;
+  }
+  if (normalized.includes("webp")) {
+    return `${fallback}.webp`;
+  }
+  if (normalized.includes("gif")) {
+    return `${fallback}.gif`;
+  }
+  if (normalized.includes("svg")) {
+    return `${fallback}.svg`;
+  }
+  return `${fallback}.bin`;
+};
+
+const getBinaryAssetData = async (
+  asset: string | NormalizedBinaryInput,
+  signal?: AbortSignal,
+  fallback: string = "file",
+): Promise<{
+  mediaType: string;
+  data: ArrayBuffer;
+  filename: string;
+} | null> => {
+  const source = typeof asset === "string" ? asset : asset?.source;
+  const preferredMimeType =
+    typeof asset === "string" ? undefined : asset?.mimeType;
+  const preferredFilename =
+    typeof asset === "string" ? undefined : asset?.filename;
+
+  if (!source) {
+    return null;
+  }
+
+  const parsed = parseDataURL(source);
+  if (parsed) {
+    const mediaType = preferredMimeType || parsed.mediaType;
+    return {
+      mediaType,
+      data: base64ToArrayBuffer(parsed.data),
+      filename:
+        preferredFilename || getFilenameFromMimeType(mediaType, fallback),
+    };
+  }
+
+  if (/^https?:\/\//i.test(source)) {
+    const response = await requestUrlWithAbort(
+      {
+        url: source,
+        method: "GET",
+      },
+      signal,
+    );
+
+    if (response.status >= 400 || !response.arrayBuffer) {
+      throw new Error(`Unable to download file from ${source}`);
+    }
+
+    const mediaType =
+      preferredMimeType ||
+      getHeaderValue(response.headers, "content-type") ||
+      "application/octet-stream";
+    return {
+      mediaType,
+      data: response.arrayBuffer,
+      filename:
+        preferredFilename || getFilenameFromMimeType(mediaType, fallback),
+    };
+  }
+
+  throw new Error("Unsupported file source. Use a data URL or an http(s) URL.");
+};
+
+const toInlineBinaryData = async (
+  asset: string | NormalizedBinaryInput,
+  signal?: AbortSignal,
+  fallback: string = "file",
+): Promise<{ mediaType: string; data: string; filename: string } | null> => {
+  const binary = await getBinaryAssetData(asset, signal, fallback);
+  if (!binary) {
+    return null;
+  }
+  return {
+    mediaType: binary.mediaType,
+    data: arrayBufferToBase64(binary.data),
+    filename: binary.filename,
+  };
+};
+
+const toAnthropicContent = async (
+  content: string | NormalizedMessagePart[],
+  signal?: AbortSignal,
+) => {
+  if (typeof content === "string") {
+    return [{ type: "text", text: content }];
+  }
+
+  const parts = [];
+  for (const part of content) {
+    if (part.type === "text") {
+      parts.push({ type: "text", text: part.text });
+      continue;
+    }
+
+    if (part.type === "image") {
+      const inlineImage = await toInlineBinaryData(part.image, signal, "image");
+      if (!inlineImage) {
+        continue;
+      }
+      parts.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: inlineImage.mediaType,
+          data: inlineImage.data,
+        },
+      });
+      continue;
+    }
+
+    if (part.type === "file") {
+      const inlineFile = await toInlineBinaryData(
+        part.file,
+        signal,
+        "document",
+      );
+      if (!inlineFile) {
+        continue;
+      }
+      if (inlineFile.mediaType !== "application/pdf") {
+        throw new Error(
+          "Anthropic file attachments currently support PDF documents only in ExcalidrawAutomate.",
+        );
+      }
+      parts.push({
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: inlineFile.mediaType,
+          data: inlineFile.data,
+        },
+        title: inlineFile.filename,
+      });
+      continue;
+    }
+
+    throw new Error(
+      "Anthropic audio attachments are not currently supported by ExcalidrawAutomate.",
+    );
+  }
+  return parts;
+};
+
+const getAnthropicPayload = async (
+  messages: NormalizedMessage[],
+  config: ResolvedAIConfig,
+  request: AIRequest,
+  signal?: AbortSignal,
+) => {
+  const system = messages
+    .filter((message) => message.role === "system")
+    .map((message) =>
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n"),
+    )
+    .filter(Boolean)
+    .join("\n\n");
+
+  const requestMessages = [];
+  for (const message of messages.filter((item) => item.role !== "system")) {
+    requestMessages.push({
+      role: message.role,
+      content: await toAnthropicContent(message.content, signal),
+    });
+  }
+
+  return {
+    model: request.model || config.text.model,
+    max_tokens: request.maxTokens ?? config.maxTokens,
+    ...(request.temperature !== undefined
+      ? { temperature: request.temperature }
+      : {}),
+    ...(system ? { system } : {}),
+    messages: requestMessages,
+  };
+};
+
+const toGoogleParts = async (
+  content: string | NormalizedMessagePart[],
+  signal?: AbortSignal,
+) => {
+  if (typeof content === "string") {
+    return [{ text: content }];
+  }
+
+  const parts = [];
+  for (const part of content) {
+    if (part.type === "text") {
+      parts.push({ text: part.text });
+      continue;
+    }
+
+    const inlineData = await toInlineBinaryData(
+      part.type === "image"
+        ? part.image
+        : part.type === "file"
+          ? part.file
+          : part.audio,
+      signal,
+      part.type === "audio"
+        ? "audio"
+        : part.type === "image"
+          ? "image"
+          : "document",
+    );
+    if (!inlineData) {
+      continue;
+    }
+    parts.push({
+      inlineData: {
+        mimeType: inlineData.mediaType,
+        data: inlineData.data,
+      },
+    });
+  }
+  return parts;
+};
+
+const getGooglePayload = async (
+  messages: NormalizedMessage[],
+  config: ResolvedAIConfig,
+  request: AIRequest,
+  signal?: AbortSignal,
+) => {
+  const systemInstruction = messages
+    .filter((message) => message.role === "system")
+    .map((message) =>
+      typeof message.content === "string"
+        ? { text: message.content }
+        : message.content
+            .filter((part) => part.type === "text")
+            .map((part) => ({ text: part.text })),
+    )
+    .flat();
+
+  const contents = [];
+  for (const message of messages.filter((item) => item.role !== "system")) {
+    contents.push({
+      role: message.role === "assistant" ? "model" : "user",
+      parts: await toGoogleParts(message.content, signal),
+    });
+  }
+
+  return {
+    ...(systemInstruction.length > 0
+      ? { systemInstruction: { parts: systemInstruction } }
+      : {}),
+    contents,
+    generationConfig: {
+      ...(request.temperature !== undefined
+        ? { temperature: request.temperature }
+        : {}),
+      ...((request.maxTokens ?? config.maxTokens)
+        ? { maxOutputTokens: request.maxTokens ?? config.maxTokens }
+        : {}),
+    },
+  };
+};
+
+const getGoogleEndpoint = (config: ResolvedModelConfig): string => {
+  const baseEndpoint = normalizeBaseURL(config.endpoint || config.baseURL);
+  const separator = baseEndpoint.includes("?") ? "&" : "?";
+  return `${baseEndpoint}/models/${config.model}:generateContent${separator}key=${encodeURIComponent(config.apiKey)}`;
+};
+
+const normalizeAnthropicResponse = (json: JsonObject): JsonObject => {
+  const contentItems = getJsonArray(json, "content");
+  const text =
+    contentItems
+      .filter(
+        (item): item is JsonObject =>
+          isJsonObject(item) && item.type === "text",
+      )
+      .map((item) => (typeof item.text === "string" ? item.text : ""))
+      .filter(Boolean)
+      .join("\n\n") ?? "";
+
+  const usage = getJsonObject(json, "usage");
+  const inputTokens = usage?.input_tokens;
+  const outputTokens = usage?.output_tokens;
+
+  return {
+    id: json.id,
+    object: "chat.completion",
+    created: json.created_at,
+    model: json.model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: text,
+        },
+        finish_reason: json.stop_reason ?? "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: inputTokens ?? null,
+      completion_tokens: outputTokens ?? null,
+      total_tokens:
+        (typeof inputTokens === "number" ? inputTokens : 0) +
+        (typeof outputTokens === "number" ? outputTokens : 0),
+    },
+  };
+};
+
+const normalizeGoogleResponse = (json: JsonObject): JsonObject => {
+  const candidates = getJsonArray(json, "candidates");
+  const firstCandidate = isJsonObject(candidates[0]) ? candidates[0] : null;
+  const candidateContent = getJsonObject(firstCandidate, "content");
+  const parts = getJsonArray(candidateContent, "parts");
+
+  const text =
+    parts
+      .map((part) => (isJsonObject(part) ? part.text : undefined))
+      .filter((value): value is string => typeof value === "string")
+      .filter(Boolean)
+      .join("\n\n") ?? "";
+
+  const usageMetadata = getJsonObject(json, "usageMetadata");
+
+  return {
+    id: json.responseId,
+    object: "chat.completion",
+    created: Date.now(),
+    model: json.modelVersion,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: text,
+        },
+        finish_reason: firstCandidate?.finishReason ?? "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: usageMetadata?.promptTokenCount ?? null,
+      completion_tokens: usageMetadata?.candidatesTokenCount ?? null,
+      total_tokens: usageMetadata?.totalTokenCount ?? null,
+    },
+  };
+};
+
+const normalizeResponseJson = (
+  provider: AIProvider,
+  json: JsonObject,
+): JsonObject => {
+  if (json.error) {
+    return json;
+  }
+  switch (provider) {
+    case "anthropic":
+      return normalizeAnthropicResponse(json);
+    case "google":
+      return normalizeGoogleResponse(json);
+    default:
+      return json;
+  }
+};
+
+const stripImageDataPrefix = (
+  value?: string,
+): { data: string; mimeType?: string } | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = parseDataURL(value);
+  if (parsed) {
+    return {
+      data: parsed.data,
+      mimeType: parsed.mediaType,
+    };
+  }
+
+  return {
+    data: value,
+  };
+};
+
+const getMimeTypeForOutputFormat = (
+  format?: string,
+  fallback: string = "image/png",
+): string => {
+  if (!format) {
+    return fallback;
+  }
+  const normalized = format.toLowerCase();
+  if (normalized === "jpg") {
+    return "image/jpeg";
+  }
+  if (normalized.startsWith("image/")) {
+    return normalized;
+  }
+  return `image/${normalized}`;
+};
+
+const normalizeOpenAIImageResponse = (json: JsonObject): JsonObject => {
+  if (json.error) {
+    return json;
+  }
+  const data = Array.isArray(json.data)
+    ? json.data.filter(
+        (item: unknown) =>
+          isJsonObject(item) && Boolean(item.url || item.b64_json),
+      )
+    : [];
+
+  return {
+    ...json,
+    data,
+  };
+};
+
+const normalizeGoogleImageResponseForImages = (
+  json: JsonObject,
+): JsonObject => {
+  if (json.error) {
+    return json;
+  }
+
+  const candidates = getJsonArray(json, "candidates");
+  const firstCandidate = isJsonObject(candidates[0]) ? candidates[0] : null;
+  const candidateContent = getJsonObject(firstCandidate, "content");
+  const parts = getJsonArray(candidateContent, "parts");
+  const revisedPrompt = parts
+    .map((part) => (isJsonObject(part) ? part.text : undefined))
+    .filter((value): value is string => typeof value === "string")
+    .filter(Boolean)
+    .join("\n\n");
+
+  const firstPartWithMimeType = parts.find((part) => {
+    if (!isJsonObject(part)) {
+      return false;
+    }
+    const inlineData = getJsonObject(part, "inlineData");
+    return typeof inlineData?.mimeType === "string";
+  });
+  const firstInlineDataWithMimeType = isJsonObject(firstPartWithMimeType)
+    ? getJsonObject(firstPartWithMimeType, "inlineData")
+    : null;
+
+  return {
+    ...json,
+    output_format: getMimeTypeForOutputFormat(
+      typeof firstInlineDataWithMimeType?.mimeType === "string"
+        ? firstInlineDataWithMimeType.mimeType
+        : undefined,
+      "image/png",
+    ).replace("image/", ""),
+    data: parts
+      .map((part, index) => {
+        if (!isJsonObject(part)) {
+          return null;
+        }
+        const inlineData = getJsonObject(part, "inlineData");
+        if (!inlineData || typeof inlineData.data !== "string") {
+          return null;
+        }
+        return {
+          b64_json: inlineData.data,
+          mimeType:
+            typeof inlineData.mimeType === "string"
+              ? inlineData.mimeType
+              : "image/png",
+          ...(revisedPrompt && index === 0
+            ? { revised_prompt: revisedPrompt }
+            : {}),
+        };
+      })
+      .filter(Boolean),
+  };
+};
+
+const normalizeXAIImageResponse = (json: JsonObject): JsonObject => {
+  if (json.error) {
+    return json;
+  }
+
+  const rawItems = Array.isArray(json.data)
+    ? json.data
+    : Array.isArray(json.images)
+      ? json.images
+      : [];
+  const normalizedData = rawItems.flatMap((item: unknown) => {
+    if (!isJsonObject(item)) {
+      return [];
+    }
+    if (item.url || item.b64_json) {
+      return [item];
+    }
+
+    const itemBase64 = typeof item.base64 === "string" ? item.base64 : null;
+    if (itemBase64) {
+      const normalizedBase64 = stripImageDataPrefix(itemBase64);
+      return normalizedBase64
+        ? [
+            {
+              b64_json: normalizedBase64.data,
+              mimeType: normalizedBase64.mimeType,
+            },
+          ]
+        : [];
+    }
+
+    const itemImage = getJsonObject(item, "image");
+    if (itemImage?.url || itemImage?.b64_json) {
+      return [
+        {
+          url: itemImage.url,
+          b64_json: itemImage.b64_json,
+        },
+      ];
+    }
+
+    const itemImageBase64 =
+      itemImage && typeof itemImage.base64 === "string"
+        ? itemImage.base64
+        : null;
+    if (itemImageBase64) {
+      const normalizedBase64 = stripImageDataPrefix(itemImageBase64);
+      return normalizedBase64
+        ? [
+            {
+              b64_json: normalizedBase64.data,
+              mimeType: normalizedBase64.mimeType,
+            },
+          ]
+        : [];
+    }
+
+    return [];
+  });
+
+  if (normalizedData.length > 0) {
+    return {
+      ...json,
+      data: normalizedData,
+    };
+  }
+
+  if (typeof json.url === "string") {
+    return {
+      ...json,
+      data: [{ url: json.url }],
+    };
+  }
+
+  if (typeof json.base64 === "string") {
+    const normalizedBase64 = stripImageDataPrefix(json.base64);
+    return {
+      ...json,
+      data: normalizedBase64
+        ? [
+            {
+              b64_json: normalizedBase64.data,
+              mimeType: normalizedBase64.mimeType,
+            },
+          ]
+        : [],
+    };
+  }
+
+  return {
+    ...json,
+    data: [],
+  };
+};
+
+const normalizeImageResponseJson = (
+  provider: AIProvider,
+  json: JsonObject,
+): JsonObject => {
+  switch (provider) {
+    case "google":
+      return normalizeGoogleImageResponseForImages(json);
+    case "xai":
+      return normalizeXAIImageResponse(json);
+    default:
+      return normalizeOpenAIImageResponse(json);
+  }
+};
+
+const hasMessagePartType = (
+  messages: NormalizedMessage[],
+  type: NormalizedMessagePart["type"],
+): boolean => {
+  return messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === type),
+  );
+};
+
+const trimTextForImagePrompt = (
+  text: string | undefined,
+  maxOutgoingTokens?: number,
+): string | undefined => {
+  if (!text?.trim() || !maxOutgoingTokens || maxOutgoingTokens <= 0) {
+    return text;
+  }
+  const tokenCount = estimateTokenCount(text);
+  return tokenCount <= maxOutgoingTokens
+    ? text
+    : trimTextToTokenBudget(text, maxOutgoingTokens);
+};
+
+const getImagePromptText = (
+  request: AIRequest,
+  maxOutgoingTokens?: number,
+): string | undefined => {
+  const text = [request.text?.trim(), request.instruction?.trim()]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return trimTextForImagePrompt(text || undefined, maxOutgoingTokens);
+};
+
+const getErrorMessageFromResponse = (response: RequestUrlResponse): string => {
+  if (response.json?.error?.message) {
+    return response.json.error.message;
+  }
+  if (typeof response.text === "string" && response.text.trim()) {
+    return response.text.trim();
+  }
+  return `Request failed with status ${response.status}`;
+};
+
+const postJSON = async (
+  url: string,
+  init: {
+    method?: string;
+    body?: string | ArrayBuffer;
+    headers?: Record<string, string>;
+    contentType?: string;
+  },
+  provider: AIProvider,
+  signal?: AbortSignal,
+  normalizeJson: (json: JsonObject) => JsonObject = (json) =>
+    normalizeResponseJson(provider, json),
+): Promise<RequestUrlResponse> => {
+  const result = await requestUrlWithAbort(
+    {
+      url,
+      method: init.method,
+      body: init.body,
+      headers: init.headers,
+      contentType: init.contentType,
+    },
+    signal,
+  );
+
+  const normalizedJson = normalizeJson(
+    isJsonObject(result.json) ? result.json : {},
+  );
+  const normalizedError = getJsonObject(normalizedJson, "error") ?? {};
+  if (result.status >= 400) {
+    return {
+      status: result.status,
+      headers: result.headers,
+      text: result.text,
+      json: {
+        ...(normalizedJson && typeof normalizedJson === "object"
+          ? normalizedJson
+          : {}),
+        error: {
+          ...normalizedError,
+          message: getErrorMessageFromResponse({
+            ...result,
+            json: normalizedJson,
+          }),
+          provider,
+          endpoint: url,
+          status: result.status,
+        },
+      },
+      arrayBuffer: result.arrayBuffer,
+    };
+  }
+
+  return {
+    status: result.status,
+    headers: result.headers,
+    text: result.text,
+    json: normalizedJson,
+    arrayBuffer: result.arrayBuffer,
+  };
+};
+
+const concatUint8Arrays = (parts: Uint8Array[]): Uint8Array => {
+  const totalLength = parts.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
+};
+
+const buildMultipartFormBody = (
+  fields: Array<{ name: string; value: string }>,
+  files: Array<{
+    name: string;
+    filename: string;
+    contentType: string;
+    data: ArrayBuffer;
+  }>,
+): { contentType: string; body: ArrayBuffer } => {
+  const boundary = `----ExcalidrawAIBoundary${Date.now().toString(16)}`;
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+
+  for (const field of fields) {
+    chunks.push(encoder.encode(`--${boundary}\r\n`));
+    chunks.push(
+      encoder.encode(
+        `Content-Disposition: form-data; name="${field.name}"\r\n\r\n`,
+      ),
+    );
+    chunks.push(encoder.encode(`${field.value}\r\n`));
+  }
+
+  for (const file of files) {
+    chunks.push(encoder.encode(`--${boundary}\r\n`));
+    chunks.push(
+      encoder.encode(
+        `Content-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\n`,
+      ),
+    );
+    chunks.push(encoder.encode(`Content-Type: ${file.contentType}\r\n\r\n`));
+    chunks.push(new Uint8Array(file.data));
+    chunks.push(encoder.encode("\r\n"));
+  }
+
+  chunks.push(encoder.encode(`--${boundary}--\r\n`));
+  const combined = concatUint8Arrays(chunks);
+
+  return {
+    contentType: `multipart/form-data; boundary=${boundary}`,
+    body: strictArrayBuffer(
+      combined.buffer.slice(
+        combined.byteOffset,
+        combined.byteOffset + combined.byteLength,
+      ),
+    ),
+  };
+};
+
+const handleImageRequest = async (
+  request: AIRequest,
+  config: ResolvedAIConfig,
+  signal?: AbortSignal,
+): Promise<RequestUrlResponse> => {
+  const imageConfig = config.image;
+  const image = getImageURL(request.image);
+  const mask = getImageURL(request.imageGenerationProperties?.mask);
+  const isEditing = Boolean(mask || image);
+  const imageMode = mask ? "mask-edit" : image ? "transform" : "generation";
+  const promptText = getImagePromptText(
+    request,
+    request.maxOutgoingTokens ?? config.maxOutgoingTokens,
+  );
+  const selectedImageModel = request.model || imageConfig.model;
+
+  if (mask && !imageConfig.supportsMaskImageEdits) {
+    return createSyntheticResponse(
+      `${imageConfig.model} does not support mask-based image edits in Excalidraw. Choose an image model with mask edit support.`,
+      400,
+    );
+  }
+
+  if (image && !mask && !imageConfig.supportsPromptImageTransforms) {
+    return createSyntheticResponse(
+      `${imageConfig.model} does not support prompt-based image transforms in Excalidraw. Choose an image model with transform support.`,
+      400,
+    );
+  }
+
+  let response: RequestUrlResponse;
+
+  switch (imageConfig.provider) {
+    case "google": {
+      if (mask) {
+        return createSyntheticResponse(
+          `${imageConfig.model} does not currently support mask-based image edits through the Google image API in Excalidraw.`,
+          400,
+        );
+      }
+
+      const geminiImageConfig = request.imageGenerationProperties?.size
+        ? getGeminiImageRequestConfig(
+            imageConfig.provider,
+            selectedImageModel,
+            request.imageGenerationProperties.size,
+          )
+        : null;
+      const geminiSupportedSizes = getGeminiSupportedSizes(
+        imageConfig.provider,
+        selectedImageModel,
+      );
+
+      if (
+        request.imageGenerationProperties?.size &&
+        geminiSupportedSizes.length > 0 &&
+        !geminiImageConfig
+      ) {
+        return createSyntheticResponse(
+          `${request.imageGenerationProperties.size} is not a supported Gemini image size for ${selectedImageModel}.`,
+          400,
+        );
+      }
+
+      const parts: Array<{
+        text?: string;
+        inlineData?: { mimeType: string; data: string };
+      }> = [];
+      if (image) {
+        const inlineImage = await toInlineBinaryData(
+          normalizeBinaryInput(request.image),
+          signal,
+          "image",
+        );
+        if (inlineImage) {
+          parts.push({
+            inlineData: {
+              mimeType: inlineImage.mediaType,
+              data: inlineImage.data,
+            },
+          });
+        }
+      }
+      if (promptText) {
+        parts.push({ text: promptText });
+      }
+
+      if (parts.length === 0) {
+        return createSyntheticResponse(
+          "Google image requests require a prompt or an input image.",
+          400,
+        );
+      }
+
+      response = await postJSON(
+        getGoogleEndpoint({ ...imageConfig, endpoint: imageConfig.baseURL }),
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts }],
+            generationConfig: {
+              responseModalities: ["TEXT", "IMAGE"],
+              ...(geminiImageConfig
+                ? {
+                    imageConfig: {
+                      aspectRatio: geminiImageConfig.aspectRatio,
+                      ...(geminiImageConfig.imageSize
+                        ? { imageSize: geminiImageConfig.imageSize }
+                        : {}),
+                    },
+                  }
+                : {}),
+              ...(request.temperature !== undefined
+                ? { temperature: request.temperature }
+                : {}),
+              ...((request.maxTokens ?? config.maxTokens)
+                ? { maxOutputTokens: request.maxTokens ?? config.maxTokens }
+                : {}),
+            },
+          }),
+          contentType: "application/json",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+        imageConfig.provider,
+        signal,
+        (json) => normalizeImageResponseJson(imageConfig.provider, json),
+      );
+      break;
+    }
+    case "xai": {
+      if (mask) {
+        return createSyntheticResponse(
+          `${imageConfig.model} does not currently support mask-based image edits through the xAI image API in Excalidraw.`,
+          400,
+        );
+      }
+
+      const endpoint = isEditing
+        ? joinURL(imageConfig.baseURL, "/images/edits")
+        : joinURL(imageConfig.baseURL, "/images/generations");
+      const payload = isEditing
+        ? {
+            model: request.model || imageConfig.model,
+            ...(promptText ? { prompt: promptText } : {}),
+            image: {
+              url: image,
+              type: "image_url",
+            },
+          }
+        : {
+            model: request.model || imageConfig.model,
+            ...(promptText ? { prompt: promptText } : {}),
+          };
+
+      response = await postJSON(
+        endpoint,
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+          contentType: "application/json",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${imageConfig.apiKey}`,
+          },
+        },
+        imageConfig.provider,
+        signal,
+        (json) => normalizeImageResponseJson(imageConfig.provider, json),
+      );
+      break;
+    }
+    default: {
+      if (!["openai", "openai-compatible"].includes(imageConfig.provider)) {
+        return createSyntheticResponse(
+          `${imageConfig.provider} does not currently support image generation or editing in Excalidraw. Configure an OpenAI, Google, or xAI image model for image requests.`,
+          400,
+        );
+      }
+
+      const endpoint = isEditing
+        ? joinURL(imageConfig.baseURL, "/images/edits")
+        : joinURL(imageConfig.baseURL, "/images/generations");
+
+      if (isEditing) {
+        const fields: Array<{ name: string; value: string }> = [
+          { name: "model", value: request.model || imageConfig.model },
+        ];
+        if (promptText) {
+          fields.push({ name: "prompt", value: promptText });
+        }
+        if (request.imageGenerationProperties?.size) {
+          fields.push({
+            name: "size",
+            value: request.imageGenerationProperties.size,
+          });
+        }
+        if (request.imageGenerationProperties?.n) {
+          fields.push({
+            name: "n",
+            value: String(request.imageGenerationProperties.n),
+          });
+        }
+        if (request.imageGenerationProperties?.quality) {
+          fields.push({
+            name: "quality",
+            value: request.imageGenerationProperties.quality,
+          });
+        }
+
+        const files: Array<{
+          name: string;
+          filename: string;
+          contentType: string;
+          data: ArrayBuffer;
+        }> = [];
+
+        if (image) {
+          const imageFile = await getBinaryAssetData(
+            normalizeBinaryInput(request.image),
+            signal,
+            "image",
+          );
+          if (imageFile) {
+            files.push({
+              name: "image",
+              filename: imageFile.filename,
+              contentType: imageFile.mediaType,
+              data: imageFile.data,
+            });
+          }
+        }
+
+        if (mask) {
+          const maskFile = await getBinaryAssetData(
+            normalizeBinaryInput(request.imageGenerationProperties?.mask),
+            signal,
+            "mask",
+          );
+          if (maskFile) {
+            files.push({
+              name: "mask",
+              filename: maskFile.filename,
+              contentType: maskFile.mediaType,
+              data: maskFile.data,
+            });
+          }
+        }
+
+        const multipart = buildMultipartFormBody(fields, files);
+        response = await postJSON(
+          endpoint,
+          {
+            method: "POST",
+            body: multipart.body,
+            contentType: multipart.contentType,
+            headers: {
+              Authorization: `Bearer ${imageConfig.apiKey}`,
+            },
+          },
+          imageConfig.provider,
+          signal,
+          (json) => normalizeImageResponseJson(imageConfig.provider, json),
+        );
+      } else {
+        response = await postJSON(
+          endpoint,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              model: request.model || imageConfig.model,
+              prompt: promptText,
+              ...request.imageGenerationProperties,
+            }),
+            contentType: "application/json",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${imageConfig.apiKey}`,
+            },
+          },
+          imageConfig.provider,
+          signal,
+          (json) => normalizeImageResponseJson(imageConfig.provider, json),
+        );
+      }
+      break;
+    }
+  }
+
+  if (response.status >= 400 && response.json?.error) {
+    response.json.error.imageRequest = {
+      mode: imageMode,
+      model: request.model || imageConfig.model,
+      size: request.imageGenerationProperties?.size ?? "",
+    };
+  }
+  return response;
+};
+
+const handleTextRequest = async (
+  request: AIRequest,
+  config: ResolvedAIConfig,
+  signal?: AbortSignal,
+): Promise<RequestUrlResponse> => {
+  const messages = applyOutgoingTokenBudget(
+    buildNormalizedMessages(request),
+    request.maxOutgoingTokens ?? config.maxOutgoingTokens,
+  );
+  const activeConfig = config.text;
+  const model = request.model || activeConfig.model;
+
+  if (
+    (getImageURL(request.image) || hasMessagePartType(messages, "image")) &&
+    !activeConfig.multimodalSupport
+  ) {
+    return createSyntheticResponse(
+      `${activeConfig.model} is configured as a text-only model. Choose a model with multimodal support enabled for image analysis requests.`,
+      400,
+    );
+  }
+
+  if (
+    ["openai", "openai-compatible", "xai"].includes(activeConfig.provider) &&
+    (hasMessagePartType(messages, "file") ||
+      hasMessagePartType(messages, "audio"))
+  ) {
+    return createSyntheticResponse(
+      `${activeConfig.provider} does not currently support file or audio message parts in Excalidraw's chat-completions pipeline. Use Google for inline audio/PDF inputs, or Anthropic for PDF documents.`,
+      400,
+    );
+  }
+
+  switch (activeConfig.provider) {
+    case "anthropic": {
+      const payload = await getAnthropicPayload(
+        messages,
+        config,
+        request,
+        signal,
+      );
+      return await postJSON(
+        activeConfig.endpoint,
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+          contentType: "application/json",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": activeConfig.apiKey,
+            "anthropic-version": ANTHROPIC_VERSION,
+          },
+        },
+        activeConfig.provider,
+        signal,
+      );
+    }
+    case "google": {
+      const payload = await getGooglePayload(messages, config, request, signal);
+      return await postJSON(
+        getGoogleEndpoint({ ...activeConfig, model }),
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+          contentType: "application/json",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+        activeConfig.provider,
+        signal,
+      );
+    }
+    default: {
+      const body: GPTCompletionRequest = {
+        model,
+        ...(request.temperature !== undefined
+          ? { temperature: request.temperature }
+          : {}),
+        ...getTextLimitPayload(model, request.maxTokens ?? config.maxTokens),
+        messages: toOpenAIMessages(messages),
+      };
+
+      return await postJSON(
+        activeConfig.endpoint,
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+          contentType: "application/json",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${activeConfig.apiKey}`,
+          },
+        },
+        activeConfig.provider,
+        signal,
+      );
+    }
+  }
+};
+
+const requestAI = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<RequestUrlResponse> => {
+  const plugin = getPlugin(options.plugin);
+  const config = resolveAIConfig(request, plugin);
+  if (!plugin || !config) {
+    return createSyntheticResponse(
+      "Excalidraw AI is not available because the plugin instance could not be resolved.",
+      500,
+    );
+  }
+
+  const isImageGeneration = Boolean(request.imageGenerationProperties);
+  const activeApiKey = isImageGeneration
+    ? config.image.apiKey
+    : config.text.apiKey;
+
+  if (!isImageGeneration && requestHasImageInput(request)) {
+    logAIDebug(plugin, "multimodal request routing", [
+      debugValueLine(
+        "requestedTextModelId",
+        request.textModelId || "<default>",
+      ),
+      debugValueLine(
+        "defaultTextModel",
+        plugin.settings.aiDefaultTextModel || "<empty>",
+      ),
+      debugValueLine(
+        "defaultMultimodalModel",
+        plugin.settings.aiDefaultMultimodalModel || "<empty>",
+      ),
+      debugValueLine("resolvedProvider", config.text.provider),
+      debugValueLine("resolvedModel", config.text.model),
+      debugValueLine("resolvedEndpoint", config.text.endpoint),
+      debugValueLine(
+        "multimodalSupport",
+        String(config.text.multimodalSupport),
+      ),
+      debugValueLine("textChars", String(request.text?.length ?? 0)),
+      debugValueLine(
+        "instructionChars",
+        String(request.instruction?.length ?? 0),
+      ),
+      debugValueLine(
+        "maxTokens",
+        String(request.maxTokens ?? config.maxTokens ?? 0),
+      ),
+    ]);
+  }
+
+  if (!activeApiKey) {
+    new Notice("AI API key is not set. Please set it in plugin settings.");
+    return createSyntheticResponse(
+      "AI API key is not set. Please set it in plugin settings.",
+      401,
+    );
+  }
+
+  try {
+    return isImageGeneration
+      ? await handleImageRequest(request, config, options.signal)
+      : await handleTextRequest(request, config, options.signal);
+  } catch (error: unknown) {
+    const errorName =
+      typeof error === "object" && error !== null && "name" in error
+        ? String((error as { name?: unknown }).name ?? "")
+        : "";
+    if (errorName === "AbortError") {
+      return createSyntheticResponse("Request aborted", 499);
+    }
+    log(error);
+    const errorMessage =
+      typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message ?? "Request failed")
+        : "Request failed";
+    return createSyntheticResponse(errorMessage, 500);
+  }
+};
+
+const cloneAIRequestMessageContent = (
+  content: AIRequestMessage["content"],
+): AIRequestMessage["content"] => {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content.map((part) => ({ ...part }));
+};
+
+const cloneAIRequestMessage = (
+  message: AIRequestMessage,
+): AIRequestMessage => ({
+  role: message.role,
+  content: cloneAIRequestMessageContent(message.content),
+});
+
+const buildGenerateAIImageResult = (
+  response: RequestUrlResponse,
+): GenerateAIImageResult => {
+  const json = response?.json;
+  const images = Array.isArray(json?.data)
+    ? json.data
+        .map(
+          (image: {
+            url?: string;
+            b64_json?: string;
+            mimeType?: string;
+            revised_prompt?: string;
+          }) => {
+            const mimeType =
+              image.mimeType || getMimeTypeForOutputFormat(json?.output_format);
+            return {
+              url: image.url,
+              b64_json: image.b64_json,
+              mimeType,
+              dataURL: image.b64_json
+                ? `data:${mimeType};base64,${image.b64_json}`
+                : undefined,
+              revisedPrompt: image.revised_prompt,
+            } satisfies AIGeneratedImage;
+          },
+        )
+        .filter(
+          (image: AIGeneratedImage) =>
+            image.url || image.dataURL || image.b64_json,
+        )
+    : [];
+
+  return {
+    response,
+    json,
+    images,
+    firstImage: images[0] ?? null,
+    revisedPrompt:
+      images.find((image: AIGeneratedImage) => image.revisedPrompt)
+        ?.revisedPrompt ?? "",
+  };
+};
+
+export const postAI = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<RequestUrlResponse> => {
+  return await requestAI(request, options);
+};
+
+export const postOpenAI = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<RequestUrlResponse> => {
+  return await requestAI(request, options);
+};
+
+export const generateAIText = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<GenerateAITextResult> => {
+  const plugin = getPlugin(options.plugin);
+  let response = await requestAI(request, options);
+  let json = response?.json;
+  let content = getFirstChoiceContent(json);
+
+  if (shouldRetryEmptyMultimodalReasoningResponse(request, response)) {
+    const retryMaxTokens = getEmptyMultimodalRetryMaxTokens(request);
+
+    logAIDebug(plugin, "multimodal empty-content retry", [
+      debugValueLine("status", String(response?.status ?? 0)),
+      debugValueLine(
+        "finishReason",
+        getFirstChoiceFinishReason(json) || "<empty>",
+      ),
+      debugValueLine("reasoningTokens", String(getReasoningTokenCount(json))),
+      debugValueLine("initialMaxTokens", String(request.maxTokens ?? 0)),
+      debugValueLine("retryMaxTokens", String(retryMaxTokens)),
+    ]);
+
+    response = await requestAI(
+      {
+        ...request,
+        maxTokens: retryMaxTokens,
+      },
+      options,
+    );
+    json = response?.json;
+    content = getFirstChoiceContent(json);
+
+    logAIDebug(plugin, "multimodal empty-content retry response", [
+      debugValueLine("status", String(response?.status ?? 0)),
+      debugValueLine(
+        "finishReason",
+        getFirstChoiceFinishReason(json) || "<empty>",
+      ),
+      debugValueLine("reasoningTokens", String(getReasoningTokenCount(json))),
+      debugValueLine("contentChars", String(content.length)),
+      debugValueLine("content", content || "<empty>"),
+      debugValueLine("responseJson", json),
+    ]);
+  }
+
+  const rateLimitHeader = getHeaderValue(
+    response?.headers,
+    "x-ratelimit-limit",
+  );
+  const rateLimitRemainingHeader = getHeaderValue(
+    response?.headers,
+    "x-ratelimit-remaining",
+  );
+
+  if (requestHasImageInput(request) && !request.imageGenerationProperties) {
+    logAIDebug(plugin, "multimodal response", [
+      debugValueLine("status", String(response?.status ?? 0)),
+      debugValueLine(
+        "finishReason",
+        getFirstChoiceFinishReason(json) || "<empty>",
+      ),
+      debugValueLine("reasoningTokens", String(getReasoningTokenCount(json))),
+      debugValueLine("contentChars", String(content.length)),
+      debugValueLine("content", content || "<empty>"),
+      debugValueLine("responseText", response?.text ?? "<empty>"),
+      debugValueLine("responseJson", json),
+    ]);
+  }
+
+  // Record session-scoped token usage for metering.
+  if (response?.status < 400) {
+    const meteredModel =
+      (json?.model as string | undefined) || request.model || "unknown";
+    const inputTokens =
+      (json?.usage as Record<string, number> | undefined)?.prompt_tokens ?? 0;
+    const outputTokens =
+      (json?.usage as Record<string, number> | undefined)?.completion_tokens ??
+      0;
+    recordAITextUsage(meteredModel, inputTokens, outputTokens);
+  }
+
+  return {
+    response,
+    json,
+    content,
+    rateLimit:
+      rateLimitHeader && !Number.isNaN(Number(rateLimitHeader))
+        ? Number(rateLimitHeader)
+        : null,
+    rateLimitRemaining:
+      rateLimitRemainingHeader &&
+      !Number.isNaN(Number(rateLimitRemainingHeader))
+        ? Number(rateLimitRemainingHeader)
+        : null,
+  };
+};
+
+export const getAISettings = (
+  plugin?: ExcalidrawPlugin,
+): ExcalidrawAISettings | null => {
+  const resolvedPlugin = getPlugin(plugin);
+  if (!resolvedPlugin) {
+    return null;
+  }
+
+  const providerProfiles = getProviderProfiles(resolvedPlugin);
+  const textModels = Object.fromEntries(
+    Object.entries(getModelConfigs(resolvedPlugin, "text")).map(
+      ([modelId, config]) => [
+        modelId,
+        {
+          ...config,
+          multimodalSupport: config.multimodalSupport !== false,
+        },
+      ],
+    ),
+  );
+  const imageModels = Object.fromEntries(
+    Object.entries(
+      getModelConfigs(resolvedPlugin, "image") as Record<
+        string,
+        AIImageModelConfig
+      >,
+    ).map(([modelId, config]) => {
+      const geminiSupportedSizes = getGeminiSupportedSizes(
+        providerProfiles[config.providerId]?.provider,
+        config.model,
+      );
+      return [
+        modelId,
+        {
+          ...config,
+          supportedSizes:
+            geminiSupportedSizes.length > 0
+              ? geminiSupportedSizes
+              : [...(config.supportedSizes ?? ["1024x1024"])],
+          supportsPromptImageTransforms:
+            config.supportsPromptImageTransforms ?? true,
+          supportsMaskImageEdits:
+            config.supportsMaskImageEdits ?? true,
+        },
+      ];
+    }),
+  ) as Record<string, AIImageModelConfig>;
+
+  return {
+    enabled: resolvedPlugin.settings.aiEnabled ?? true,
+    providerProfiles: Object.fromEntries(
+      Object.entries(providerProfiles).map(([providerId, profile]) => [
+        providerId,
+        {
+          provider: profile.provider,
+          baseURL:
+            inferConfiguredBaseURL(profile.baseURL) ||
+            DEFAULT_PROVIDER_BASE_URLS[profile.provider],
+          hasApiKey: Boolean(profile.apiKey?.trim()),
+        },
+      ]),
+    ),
+    textModels,
+    imageModels,
+    defaultTextModel: getSelectedModelConfigId(resolvedPlugin, "text", {}),
+    defaultMultimodalTextModel: getSelectedModelConfigId(
+      resolvedPlugin,
+      "text",
+      {},
+      true,
+    ),
+    defaultImageModel: getSelectedModelConfigId(resolvedPlugin, "image", {}),
+    defaultMaxOutgoingTokens:
+      resolvedPlugin.settings.aiDefaultMaxOutgoingTokens || 0,
+    defaultMaxResponseTokens:
+      resolvedPlugin.settings.aiDefaultMaxResponseTokens,
+  };
+};
+
+export const analyzeAIImage = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<GenerateAITextResult> => {
+  if (!requestHasImageInput(request)) {
+    const response = createSyntheticResponse(
+      "Image analysis requires an input image.",
+      400,
+    );
+    return {
+      response,
+      json: response.json,
+      content: "",
+      rateLimit: null,
+      rateLimitRemaining: null,
+    };
+  }
+
+  return await generateAIText(request, options);
+};
+
+export const generateAIImage = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<GenerateAIImageResult> => {
+  const plugin = getPlugin(options.plugin);
+  const config = resolveAIConfig(request, plugin);
+  const imageModelId = config?.image.model ?? request.model ?? "unknown";
+  const response = await requestAI(
+    {
+      ...request,
+      imageGenerationProperties: {
+        ...(request.imageGenerationProperties ?? {}),
+        n: request.imageGenerationProperties?.n ?? 1,
+      },
+    },
+    options,
+  );
+  const result = buildGenerateAIImageResult(response);
+  if (result.images.length > 0) {
+    recordAIImageGenerationUsage(imageModelId, result.images.length);
+  }
+  return result;
+};
+
+export const transformAIImage = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<GenerateAIImageResult> => {
+  if (!request.image) {
+    return buildGenerateAIImageResult(
+      createSyntheticResponse("Image transforms require an input image.", 400),
+    );
+  }
+
+  const plugin = getPlugin(options.plugin);
+  const config = resolveAIConfig(request, plugin);
+  const imageModelId = config?.image.model ?? request.model ?? "unknown";
+  const response = await requestAI(
+    {
+      ...request,
+      imageGenerationProperties: {
+        ...(request.imageGenerationProperties ?? {}),
+        n: request.imageGenerationProperties?.n ?? 1,
+        mask: undefined,
+      },
+    },
+    options,
+  );
+  const result = buildGenerateAIImageResult(response);
+  if (result.images.length > 0) {
+    recordAIImageGenerationUsage(imageModelId, result.images.length);
+  }
+  return result;
+};
+
+export const maskEditAIImage = async (
+  request: AIRequest,
+  options: GenerateAITextOptions = {},
+): Promise<GenerateAIImageResult> => {
+  if (!request.image) {
+    return buildGenerateAIImageResult(
+      createSyntheticResponse("Mask edits require an input image.", 400),
+    );
+  }
+  if (!request.imageGenerationProperties?.mask) {
+    return buildGenerateAIImageResult(
+      createSyntheticResponse("Mask edits require a mask image.", 400),
+    );
+  }
+
+  const plugin = getPlugin(options.plugin);
+  const config = resolveAIConfig(request, plugin);
+  const imageModelId = config?.image.model ?? request.model ?? "unknown";
+  const response = await requestAI(
+    {
+      ...request,
+      imageGenerationProperties: {
+        ...(request.imageGenerationProperties ?? {}),
+        n: request.imageGenerationProperties?.n ?? 1,
+      },
+    },
+    options,
+  );
+  const result = buildGenerateAIImageResult(response);
+  if (result.images.length > 0) {
+    recordAIImageGenerationUsage(imageModelId, result.images.length);
+  }
+  return result;
+};
+
+export const createAIChatSession = (
+  initialRequest: Omit<AIRequest, "messages"> = {},
+  options: GenerateAITextOptions = {},
+): AIChatSession => {
+  const messages: AIRequestMessage[] = [];
+
+  return {
+    getMessages: () => messages.map(cloneAIRequestMessage),
+    reset: () => {
+      messages.length = 0;
+    },
+    send: async (
+      message: string | AIRequestMessage | AIRequestMessagePart[],
+      requestOverrides: Omit<AIRequest, "messages"> = {},
+    ) => {
+      const nextMessage =
+        typeof message === "string"
+          ? { role: "user" as const, content: message }
+          : Array.isArray(message)
+            ? { role: "user" as const, content: message }
+            : message;
+
+      messages.push(cloneAIRequestMessage(nextMessage));
+      const result = await generateAIText(
+        {
+          ...initialRequest,
+          ...requestOverrides,
+          messages: messages.map(cloneAIRequestMessage),
+        },
+        options,
+      );
+
+      if (result.content?.trim()) {
+        messages.push({ role: "assistant", content: result.content });
+      }
+
+      return result;
+    },
+  };
+};
 
 /**
  * Grabs the codeblock contents from the supplied markdown string.
- * @param markdown 
- * @param codeblockType 
+ * @param markdown
+ * @param codeblockType
  * @returns an array of dictionaries with the codeblock contents and type
  */
-export const extractCodeBlocks = (markdown: string): { data: string, type: string }[] => {
-  if (!markdown) return [];
+export const extractCodeBlocks = (
+  markdown: string,
+): { data: string; type: string }[] => {
+  if (!markdown) {
+    return [];
+  }
 
   markdown = markdown.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  const result: { data: string, type: string }[] = [];
-  const regex = /```([a-zA-Z0-9]*)\n([\s\S]+?)```/g;
+  const result: { data: string; type: string }[] = [];
+  const regex = /```([^\n`]*)\n([\s\S]+?)```/g;
   let match;
 
   while ((match = regex.exec(markdown)) !== null) {
-    const codeblockType = match[1]??"";
+    const codeblockType = (match[1] ?? "").trim().split(/\s+/)[0] ?? "";
     const codeblockString = match[2].trim();
     result.push({ data: codeblockString, type: codeblockType });
   }
 
   return result;
-}
+};
 
 export const errorHTML = (message: string) => `<html>
   <body style="margin: 0; text-align: center">

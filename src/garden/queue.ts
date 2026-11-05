@@ -1,4 +1,4 @@
-import type { OrderedExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { OrderedExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import type { Site } from "./sites";
 
 /** When each site's newest (non-deleted) box was placed, by site id, in ms.

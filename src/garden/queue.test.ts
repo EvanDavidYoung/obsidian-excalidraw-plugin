@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OrderedExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { OrderedExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import { placedSiteIds, queuedSites } from "./queue";
 import type { Site } from "./sites";
 

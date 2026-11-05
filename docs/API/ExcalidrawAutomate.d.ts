@@ -1,20 +1,31 @@
 import ExcalidrawPlugin from "src/core/main";
-import { FillStyle, StrokeStyle, ExcalidrawElement, ExcalidrawBindableElement, FileId, NonDeletedExcalidrawElement, ExcalidrawImageElement, StrokeRoundness, RoundnessType } from "@zsviczian/excalidraw/types/excalidraw/element/types";
-import { ColorMap, MimeType } from "./EmbeddedFileLoader";
-import { Editor, OpenViewState, RequestUrlResponse, TFile, TFolder, WorkspaceLeaf } from "obsidian";
+import { FillStyle,StrokeStyle,ExcalidrawElement,ExcalidrawBindableElement,FileId,NonDeletedExcalidrawElement,ExcalidrawImageElement,StrokeRoundness,RoundnessType } from "@zsviczian/excalidraw/types/element/src/types";
+import { ColorMap,MimeType } from "./EmbeddedFileLoader";
+import { Editor,OpenViewState,RequestUrlResponse,TFile,TFolder,WorkspaceLeaf } from "obsidian";
 import * as obsidian_module from "obsidian";
-import ExcalidrawView, { ExportSettings } from "src/view/ExcalidrawView";
-import { AppState, BinaryFileData, DataURL } from "@zsviczian/excalidraw/types/excalidraw/types";
+import ExcalidrawView,{ ExportSettings } from "src/view/ExcalidrawView";
+import { AppState,BinaryFileData,DataURL } from "@zsviczian/excalidraw/types/excalidraw/types";
 import { EmbeddedFilesLoader } from "./EmbeddedFileLoader";
-import { ConnectionPoint, DeviceType, Point } from "src/types/types";
+import { ConnectionPoint,DeviceType,Point } from "src/types/types";
 import { ColorMaster } from "@zsviczian/colormaster";
 import { TInput } from "@zsviczian/colormaster/types";
 import { ClipboardData } from "@zsviczian/excalidraw/types/excalidraw/clipboard";
 import { PaneTarget } from "src/utils/modifierkeyHelper";
-import { Mutable } from "@zsviczian/excalidraw/types/excalidraw/utility-types";
+import { Mutable } from "@zsviczian/excalidraw/types/common/src/utility-types";
 import { EmbeddableMDCustomProps } from "./Dialogs/EmbeddableSettings";
 import { AIRequest } from "../utils/AIUtils";
-import { AddImageOptions, ImageInfo, SVGColorInfo } from "src/types/excalidrawAutomateTypes";
+import { AddImageOptions,ImageInfo,SVGColorInfo } from "src/types/excalidrawAutomateTypes";
+
+type ExcalidrawCustomDataValue =
+    | string
+    | number
+    | boolean
+    | null
+    | ExcalidrawCustomDataValue[]
+    | { [key: string]: ExcalidrawCustomDataValue };
+
+type ExcalidrawCustomDataPatch = Partial<Record<string, ExcalidrawCustomDataValue | undefined>>;
+type ExcalidrawAutomateHelpTarget = ((...args: any[]) => any) | string;
 /**
  * ExcalidrawAutomate is a utility class that provides a simplified API to interact with Excalidraw elements and the Excalidraw canvas.
  * Elements in the Excalidraw Scene are immutable. You should never directly change element properties in the scene object.
@@ -93,19 +104,19 @@ export declare class ExcalidrawAutomate {
      * Add or modify keys in an element's customData while preserving existing keys.
      * Creates customData={} if it does not exist.
      * @param {string} id - The element ID in elementsDict to modify.
-     * @param {Partial<Record<string, unknown>>} newData - Object containing key-value pairs to add/update. Set value to undefined to delete a key.
+    * @param {ExcalidrawCustomDataPatch} newData - Object containing key-value pairs to add/update. Set value to undefined to delete a key.
      * @returns {Mutable<ExcalidrawElement> | undefined} The modified element, or undefined if element does not exist.
      */
-    addAppendUpdateCustomData(id: string, newData: Partial<Record<string, unknown>>): ExcalidrawElement;
+    addAppendUpdateCustomData(id: string, newData: ExcalidrawCustomDataPatch): ExcalidrawElement;
     /**
      * Displays help information for EA functions and properties intended to be used in Obsidian developer console.
-     * @param {Function | string} target - Function reference or property name as string.
+    * @param {ExcalidrawAutomateHelpTarget} target - Function reference or property name as string.
      * Usage examples:
      * - ea.help(ea.functionName)
      * - ea.help('propertyName')
      * - ea.help('utils.functionName')
      */
-    help(target: Function | string): void;
+    help(target: ExcalidrawAutomateHelpTarget): void;
     /**
      * Posts an AI request to the OpenAI API and returns the response.
      * @param {AIRequest} request - The AI request configuration.
@@ -247,7 +258,7 @@ export declare class ExcalidrawAutomate {
         viewBackgroundColor: string;
         gridSize: number;
     };
-    colorPalette: {};
+    colorPalette: object;
     constructor(plugin: ExcalidrawPlugin, view?: ExcalidrawView);
     /**
      * Returns the last recorded pointer position on the Excalidraw canvas.
@@ -466,6 +477,30 @@ export declare class ExcalidrawAutomate {
      */
     addRect(topX: number, topY: number, width: number, height: number, id?: string): string;
     /**
+     * Adds a sticky note and its optional fitted label to the ExcalidrawAutomate
+     * instance. Width and height default to Excalidraw's sticky-note size.
+     * @param {number} topX - The x-coordinate of the top-left corner.
+     * @param {number} topY - The y-coordinate of the top-left corner.
+     * @param {string} text - The sticky-note text. An empty string creates an unlabeled note.
+     * @param {Object} [formatting] - Sticky-note size and label formatting.
+     * @param {number} [formatting.width] - The initial width of the note.
+     * @param {number} [formatting.height] - The initial height of the note.
+     * @param {number} [formatting.fontSize] - The label's maximum font size.
+     * @param {number} [formatting.fontFamily] - The label font family.
+     * @param {"left" | "center" | "right"} [formatting.textAlign] - The label's horizontal alignment.
+     * @param {"top" | "middle" | "bottom"} [formatting.textVerticalAlign] - The label's vertical alignment.
+     * @param {string} [id] - The ID of the sticky-note element.
+     * @returns {string} The ID of the added sticky note.
+     */
+    addStickyNote(topX: number, topY: number, text: string, formatting?: {
+        width?: number;
+        height?: number;
+        fontSize?: number;
+        fontFamily?: number;
+        textAlign?: "left" | "center" | "right";
+        textVerticalAlign?: "top" | "middle" | "bottom";
+    }, id?: string): string;
+    /**
      * Adds a diamond element to the ExcalidrawAutomate instance.
      * @param {number} topX - The x-coordinate of the top-left corner.
      * @param {number} topY - The y-coordinate of the top-left corner.
@@ -577,9 +612,11 @@ export declare class ExcalidrawAutomate {
      * @param {number} topX - The x-coordinate of the top-left corner.
      * @param {number} topY - The y-coordinate of the top-left corner.
      * @param {string} tex - The LaTeX equation string.
+     * @param {number} [scaleX=1] - The x-scaling factor (post mathjax creation)
+     * @param {number} [scaleY=1] - The y-scaling factor (post mathjax creation)
      * @returns {Promise<string>} Promise resolving to the ID of the added LaTeX image element.
      */
-    addLaTex(topX: number, topY: number, tex: string): Promise<string>;
+    addLaTex(topX: number, topY: number, tex: string, scaleX?: number, scaleY?: number): Promise<string>;
     /**
      * Returns the base64 dataURL of the LaTeX equation rendered as an SVG.
      * @param {string} tex - The LaTeX equation string.
@@ -984,7 +1021,7 @@ export declare class ExcalidrawAutomate {
      * Saves settings in plugin settings, under the activeScript key.
      * @returns {Object} The script settings.
      */
-    getScriptSettings(): {};
+    getScriptSettings(): object;
     /**
      * Sets the script settings for the active script.
      * @param {Object} settings - The script settings to set.

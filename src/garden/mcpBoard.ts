@@ -1,4 +1,4 @@
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 
 /**
  * A live link to mcp-excalidraw-server (the board Claude's excalidraw MCP

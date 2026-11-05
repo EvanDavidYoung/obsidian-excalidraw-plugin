@@ -1,34 +1,56 @@
-import { ButtonComponent, DropdownComponent, TFile, ToggleComponent } from "obsidian";
+import { ButtonComponent, DropdownComponent, TFile } from "obsidian";
 import ExcalidrawView from "../../view/ExcalidrawView";
-import ExcalidrawPlugin from "../../core/main";
-import {  Modal, Setting, TextComponent } from "obsidian";
+import type ExcalidrawPlugin from "../../core/main";
+import { Modal, Setting, TextComponent } from "obsidian";
 import { FileSuggestionModal } from "../Suggesters/FileSuggestionModal";
-import { IMAGE_TYPES, sceneCoordsToViewportCoords, viewportCoordsToSceneCoords, MAX_IMAGE_SIZE, ANIMATED_IMAGE_TYPES, MD_EX_SECTIONS } from "src/constants/constants";
-import { insertEmbeddableToView, insertImageToView } from "src/utils/excalidrawViewUtils";
+import {
+  IMAGE_TYPES,
+  sceneCoordsToViewportCoords,
+  viewportCoordsToSceneCoords,
+  MAX_IMAGE_SIZE,
+  ANIMATED_IMAGE_TYPES,
+} from "src/constants/constants";
+import {
+  insertEmbeddableToView,
+  insertImageToView,
+} from "src/utils/excalidrawViewUtils";
 import { getEA } from "src/core";
 import { InsertPDFModal } from "./InsertPDFModal";
-import {  ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { ExcalidrawAutomate } from "src/shared/ExcalidrawAutomate";
-import { cleanSectionHeading } from "src/utils/obsidianUtils";
+import { t } from "src/lang/helpers";
+import { hideElement, setStyle, showElement } from "src/utils/styleUtils";
+import {
+  getMarkdownHeadingSubpaths,
+  type MarkdownHeadingSubpath,
+} from "src/shared/Suggesters/markdownSubpathSuggester";
+import { insertMarkdownImage } from "src/shared/MarkdownImage";
+import { EmbeddedFile } from "src/shared/EmbeddedFileLoader";
+
+export type UniversalInsertFileAction = "image" | "embeddable";
 
 export class UniversalInsertFileModal extends Modal {
-  private center: { x: number, y: number } = { x: 0, y: 0 };
+  private center: { x: number; y: number } = { x: 0, y: 0 };
   private file: TFile;
+  private preferredAction: UniversalInsertFileAction | null = null;
 
   constructor(
     private plugin: ExcalidrawPlugin,
     private view: ExcalidrawView,
   ) {
     super(plugin.app);
-    const appState = (view.excalidrawAPI as ExcalidrawImperativeAPI).getAppState();
+    const appState = view.excalidrawAPI.getAppState();
     const containerRect = view.containerEl.getBoundingClientRect();
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewportWidth =
+      window.innerWidth || activeDocument.documentElement.clientWidth;
+    const viewportHeight =
+      window.innerHeight || activeDocument.documentElement.clientHeight;
 
-    const curViewport = sceneCoordsToViewportCoords({
-      sceneX: view.currentPosition.x,
-      sceneY: view.currentPosition.y,},
-      appState);
+    const curViewport = sceneCoordsToViewportCoords(
+      {
+        sceneX: view.currentPosition.x,
+        sceneY: view.currentPosition.y,
+      },
+      appState,
+    );
 
     if (
       curViewport.x >= containerRect.left + 150 &&
@@ -38,239 +60,283 @@ export class UniversalInsertFileModal extends Modal {
     ) {
       const sceneX = view.currentPosition.x - MAX_IMAGE_SIZE / 2;
       const sceneY = view.currentPosition.y - MAX_IMAGE_SIZE / 2;
-      this.center = {x: sceneX, y: sceneY};
+      this.center = { x: sceneX, y: sceneY };
     } else {
       const centerX = containerRect.left + containerRect.width / 2;
       const centerY = containerRect.top + containerRect.height / 2;
-  
+
       const clientX = Math.max(0, Math.min(viewportWidth, centerX));
       const clientY = Math.max(0, Math.min(viewportHeight, centerY));
-      
-      this.center = viewportCoordsToSceneCoords ({clientX, clientY}, appState);
-      this.center = {x: this.center.x - MAX_IMAGE_SIZE / 2, y: this.center.y - MAX_IMAGE_SIZE / 2};
+
+      this.center = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+      this.center = {
+        x: this.center.x - MAX_IMAGE_SIZE / 2,
+        y: this.center.y - MAX_IMAGE_SIZE / 2,
+      };
     }
   }
 
   private onKeyDown: (evt: KeyboardEvent) => void;
 
-  open(file?: TFile, center?: { x: number, y: number }) {
+  open(
+    file?: TFile,
+    center?: { x: number; y: number },
+    preferredAction?: UniversalInsertFileAction,
+  ) {
     this.file = file;
     this.center = center ?? this.center;
+    this.preferredAction = preferredAction ?? null;
     super.open();
   }
 
   onOpen(): void {
+    const modalEl = this.modalEl;
+    modalEl.classList.add("excalidraw-modal");
     this.containerEl.classList.add("excalidraw-release");
-    this.titleEl.setText(`Insert File From Vault`);
-    this.createForm();
+    this.containerEl.classList.add("excalidraw-modal");
+    this.titleEl.setText(t("UIFM_TITLE"));
+    void this.createForm();
   }
 
   async createForm() {
     const ce = this.contentEl;
     let sectionPicker: DropdownComponent;
-    let sectionPickerSetting: Setting;
     let actionIFrame: ButtonComponent;
     let actionImage: ButtonComponent;
     let actionPDF: ButtonComponent;
-    let sizeToggleSetting: Setting
     let anchorTo100: boolean = false;
     let file = this.file;
+    let fileSections: MarkdownHeadingSubpath[] = [];
 
     const updateForm = async () => {
       const ea = this.plugin.ea;
       const isSelf = file === this.view.file;
-      const isMarkdown = file && file.extension === "md" && !ea.isExcalidrawFile(file);
-      const isImage = file && (IMAGE_TYPES.contains(file.extension) || ea.isExcalidrawFile(file));
-      const isAnimatedImage = file && ANIMATED_IMAGE_TYPES.contains(file.extension);
+      const isMarkdown =
+        file && file.extension === "md" && !ea.isExcalidrawFile(file);
+      const isImage =
+        file &&
+        (IMAGE_TYPES.contains(file.extension) || ea.isExcalidrawFile(file));
+      const isAnimatedImage =
+        file && ANIMATED_IMAGE_TYPES.contains(file.extension);
       const isIFrame = file && !isImage;
       const isPDF = file && file.extension === "pdf";
       const isExcalidraw = file && ea.isExcalidrawFile(file);
 
-      const sections = (file && file.extension === "md")
-      ? (await this.plugin.app.metadataCache.blockCache
-           .getForFile({ isCancelled: () => false },file))
-           .blocks.filter((b: any) => b.display && b.node?.type === "heading")
-           .filter((b: any) => !isExcalidraw || !MD_EX_SECTIONS.includes(b.display))
-      : null;
+      fileSections =
+        file?.extension === "md"
+          ? await getMarkdownHeadingSubpaths(
+              this.app,
+              file,
+              Boolean(isExcalidraw),
+            )
+          : [];
 
-      if (isMarkdown || (isExcalidraw && sections?.length > 0)) {
-        sectionPickerSetting.settingEl.style.display = "";
-        sectionPicker.selectEl.style.display = "block";
-        while(sectionPicker.selectEl.options.length > 0) {
-          sectionPicker.selectEl.remove(0);
+      while (sectionPicker.selectEl.options.length > 0) {
+        sectionPicker.selectEl.remove(0);
+      }
+      if (isMarkdown || (isExcalidraw && fileSections.length > 0)) {
+        showElement(sectionPickerSetting.settingEl);
+        showElement(sectionPicker.selectEl);
+        if (!isSelf) {
+          sectionPicker.addOption("", t("SHOW_ENTIRE_FILE"));
         }
-        if(!isExcalidraw) sectionPicker.addOption("","");
-        sections.forEach((b: any) => {
-          sectionPicker.addOption(
-            `#${cleanSectionHeading(b.display)}`,
-            b.display)
+        fileSections.forEach((section) => {
+          sectionPicker.addOption(section.subpath, section.display);
         });
       } else {
-        sectionPickerSetting.settingEl.style.display = "none";
-        sectionPicker.selectEl.style.display = "none";
+        hideElement(sectionPickerSetting.settingEl);
+        hideElement(sectionPicker.selectEl);
       }
 
       if (isExcalidraw && !isSelf) {
-        sizeToggleSetting.settingEl.style.display = "";
+        showElement(sizeToggleSetting.settingEl);
       } else {
-        sizeToggleSetting.settingEl.style.display = "none";
+        hideElement(sizeToggleSetting.settingEl);
       }
 
-      if (!isSelf && (isImage || (file?.extension === "md"))) {
-        actionImage.buttonEl.style.display = "block";
+      if (
+        (!isSelf && (isImage || file?.extension === "md")) ||
+        (isSelf && isExcalidraw && fileSections.length > 0)
+      ) {
+        showElement(actionImage.buttonEl);
       } else {
-        actionImage.buttonEl.style.display = "none";
+        hideElement(actionImage.buttonEl);
       }
 
-      if (isIFrame || isAnimatedImage || (isExcalidraw && sections?.length > 0)) {
-        actionIFrame.buttonEl.style.display = "block";
+      if (
+        isIFrame ||
+        isAnimatedImage ||
+        (isExcalidraw && (!isSelf || fileSections.length > 0))
+      ) {
+        showElement(actionIFrame.buttonEl);
       } else {
-        actionIFrame.buttonEl.style.display = "none";
+        hideElement(actionIFrame.buttonEl);
       }
 
       if (isPDF) {
-        actionPDF.buttonEl.style.display = "block";
+        showElement(actionPDF.buttonEl);
       } else {
-        actionPDF.buttonEl.style.display = "none";
+        hideElement(actionPDF.buttonEl);
       }
+    };
 
-    }
-
-    const sections = (await this.plugin.app.metadataCache.blockCache
-      .getForFile({ isCancelled: () => false },this.view.file))
-      .blocks.filter((b: any) => b.display && b.node?.type === "heading")
-      .filter((b: any) => !MD_EX_SECTIONS.includes(b.display));
+    const currentFileSections = await getMarkdownHeadingSubpaths(
+      this.app,
+      this.view.file,
+      true,
+    );
 
     const search = new TextComponent(ce);
-    search.inputEl.style.width = "100%";
+    setStyle(search.inputEl, { width: "100%" });
     const suggester = new FileSuggestionModal(
       this.app,
       search,
-      this.app.vault.getFiles().filter((f: TFile) => sections?.length > 0 || f!==this.view.file),
-      this.plugin
+      this.app.vault
+        .getFiles()
+        .filter(
+          (f: TFile) => currentFileSections.length > 0 || f !== this.view.file,
+        ),
+      this.plugin,
     );
     search.onChange(() => {
       file = suggester.getSelectedItem();
-      updateForm();  
+      void updateForm();
     });
 
-    sectionPickerSetting = new Setting(ce)
-      .setName("Select section heading")
-      .addDropdown(dropdown => {
+    const sectionPickerSetting = new Setting(ce)
+      .setName(t("UIFM_SECTION_HEAD"))
+      .addDropdown((dropdown) => {
         sectionPicker = dropdown;
-        sectionPicker.selectEl.style.width = "100%";
-      })
+        setStyle(sectionPicker.selectEl, { width: "100%" });
+      });
 
-    sizeToggleSetting = new Setting(ce)
-      .setName("Anchor to 100% of original size")
-      .setDesc("This is a pro feature, use it only if you understand how it works. If enabled even if you change the size of the imported image in Excalidraw, the next time you open the drawing this image will pop back to 100% size. This is useful when embedding an atomic Excalidraw idea into another note and preserving relative sizing of text and icons.")
-      .addToggle(toggle => {
-        toggle.setValue(anchorTo100)
-        .onChange((value) => {
+    const sizeToggleSetting = new Setting(ce)
+      .setName(t("UIFM_ANCHOR"))
+      .setDesc(t("UIFM_ANCHOR_DESC"))
+      .addToggle((toggle) => {
+        toggle.setValue(anchorTo100).onChange((value) => {
           anchorTo100 = value;
-        })
-      })
-    
+        });
+      });
+
     new Setting(ce)
-      .addButton(button => {
-        button
-          .setButtonText("as Embeddable")
-          .onClick(async () => {
-            const path = this.app.metadataCache.fileToLinktext(
-              file,
-              this.view.file.path,
-              file.extension === "md",
-            )
-            const ea:ExcalidrawAutomate = getEA(this.view);
-            ea.selectElementsInView(
-              [await insertEmbeddableToView (
-                ea,
-                this.center,
-                //this.view.currentPosition,
-                undefined,
-                `[[${path}${sectionPicker.selectEl.value}]]`,
-              )]
-            );
-            ea.destroy();
-            this.close();
-          })
+      .addButton((button) => {
+        if (this.preferredAction === "embeddable") {
+          button.setCta();
+        }
+        button.setButtonText(t("UIFM_BTN_EMBEDDABLE")).onClick(async () => {
+          const path = this.app.metadataCache.fileToLinktext(
+            file,
+            this.view.file.path,
+            file.extension === "md",
+          );
+          const ea = getEA(this.view);
+          ea.selectElementsInView([
+            await insertEmbeddableToView(
+              ea,
+              this.center,
+              //this.view.currentPosition,
+              undefined,
+              `[[${path}${sectionPicker.selectEl.value}]]`,
+            ),
+          ]);
+          ea.destroy();
+          this.close();
+        });
         actionIFrame = button;
       })
-      .addButton(button => {
-        button
-          .setButtonText("as Pdf")
-          .onClick(() => {
-            const insertPDFModal = new InsertPDFModal(this.plugin, this.view);
-            insertPDFModal.open(file);
-            this.close();
-          })
+      .addButton((button) => {
+        button.setButtonText(t("UIFM_BTN_PDF")).onClick(() => {
+          const insertPDFModal = new InsertPDFModal(this.plugin, this.view);
+          insertPDFModal.open(file);
+          this.close();
+        });
         actionPDF = button;
       })
-      .addButton(button => {
-        button
-          .setButtonText("as Image")
-          .onClick(async () => {
-            const ea:ExcalidrawAutomate = getEA(this.view);
-            const isMarkdown = file && file.extension === "md" && !ea.isExcalidrawFile(file);
-            ea.selectElementsInView(
-              [await insertImageToView (
+      .addButton((button) => {
+        if (this.preferredAction === "image") {
+          button.setCta();
+        }
+        button.setButtonText(t("UIFM_BTN_IMAGE")).onClick(async () => {
+          const isMarkdown =
+            file &&
+            file.extension === "md" &&
+            !this.plugin.isExcalidrawFile(file);
+          const section = sectionPicker.selectEl.value;
+          if (isMarkdown || (file?.extension === "md" && section)) {
+            await insertMarkdownImage(
+              this.view,
+              section
+                ? new EmbeddedFile(
+                    this.plugin,
+                    this.view.file.path,
+                    `${file.path}${section}`,
+                  )
+                : file,
+              this.center,
+            );
+          } else {
+            const ea = getEA(this.view);
+            ea.selectElementsInView([
+              await insertImageToView(
                 ea,
                 this.center,
-                //this.view.currentPosition,
-                isMarkdown && sectionPicker.selectEl.value && sectionPicker.selectEl.value !== ""
-                ? `${file.path}${sectionPicker.selectEl.value}`
-                : file,
+                file,
                 ea.isExcalidrawFile(file) ? !anchorTo100 : undefined,
-              )]
-            );
+              ),
+            ]);
             ea.destroy();
-            this.close();
-          })
+          }
+          this.close();
+        });
         actionImage = button;
-      })
-    
-    this.view.ownerWindow.addEventListener("keydown", this.onKeyDown = (evt: KeyboardEvent) => {
-      const isVisible = (b: ButtonComponent) => b.buttonEl.style.display !== "none";
-      switch (evt.key) {
-        case "Escape": this.close(); return;
-        case "Enter":
-          if (isVisible(actionIFrame) && !isVisible(actionImage) && !isVisible(actionPDF)) {
-            actionIFrame.buttonEl.click();
+      });
+
+    this.view.ownerWindow.addEventListener(
+      "keydown",
+      (this.onKeyDown = (evt: KeyboardEvent) => {
+        const isVisible = (b: ButtonComponent) =>
+          b.buttonEl.style.display !== "none";
+        switch (evt.key) {
+          case "Escape":
+            this.close();
             return;
-          }
-          if (isVisible(actionImage) && !isVisible(actionIFrame) && !isVisible(actionPDF)) {
-            actionImage.buttonEl.click();
+          case "Enter":
+            if (
+              isVisible(actionIFrame) &&
+              !isVisible(actionImage) &&
+              !isVisible(actionPDF)
+            ) {
+              actionIFrame.buttonEl.click();
+              return;
+            }
+            if (
+              isVisible(actionImage) &&
+              !isVisible(actionIFrame) &&
+              !isVisible(actionPDF)
+            ) {
+              actionImage.buttonEl.click();
+              return;
+            }
+            if (
+              isVisible(actionPDF) &&
+              !isVisible(actionIFrame) &&
+              !isVisible(actionImage)
+            ) {
+              actionPDF.buttonEl.click();
+              return;
+            }
             return;
-          }
-          if (isVisible(actionPDF) && !isVisible(actionIFrame) && !isVisible(actionImage)) {
-            actionPDF.buttonEl.click();
-            return;
-          }
-          return;
-        case "i":
-          if (isVisible(actionImage)) {
-            actionImage.buttonEl.click();
-          }
-          return;
-        case "p":
-          if (isVisible(actionPDF)) {
-            actionPDF.buttonEl.click();
-          }
-          return
-        case "f":
-          if (isVisible(actionIFrame)) {
-            actionIFrame.buttonEl.click();
-          }
-          return;
-      }
-    });
+        }
+      }),
+    );
 
     search.inputEl.focus();
-    if(file) {
+    if (file) {
       search.setValue(file.path);
       suggester.close();
     }
-    updateForm();
+    void updateForm();
   }
 
   onClose(): void {

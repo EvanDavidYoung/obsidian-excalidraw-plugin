@@ -12,6 +12,7 @@ import {
   EXCALIDRAW_SCRIPTENGINE_INFO,
 } from "../Dialogs/SuggesterInfo";
 import type ExcalidrawPlugin from "../../core/main";
+import { setSanitizedHtml } from "src/utils/htmlUtils";
 
 /**
  * The field suggester recommends document properties in source mode, ea and utils function and attribute names.
@@ -35,14 +36,14 @@ export class FieldSuggester extends EditorSuggest<string> {
       const sub = editor.getLine(cursor.line).substring(0, cursor.ch);
       const match =
         sub.match(/^excalidraw-(.*)$/)?.[1] ??
-        sub.match(/(^ea|\Wea)\.([\w\.]*)$/)?.[2] ??
-        sub.match(/(^utils|\Wutils)\.([\w\.]*)$/)?.[2];
+        sub.match(/(^ea|\Wea)\.([\w.]*)$/)?.[2] ??
+        sub.match(/(^utils|\Wutils)\.([\w.]*)$/)?.[2];
       if (match !== undefined) {
         this.suggestType = sub.match(/^excalidraw-(.*)$/)
           ? "excalidraw"
-          : sub.match(/(^ea|\Wea)\.([\w\.]*)$/)
-          ? "ea"
-          : "utils";
+          : sub.match(/(^ea|\Wea)\.([\w.]*)$/)
+            ? "ea"
+            : "utils";
         this.latestTriggerInfo = {
           end: cursor,
           start: {
@@ -63,8 +64,8 @@ export class FieldSuggester extends EditorSuggest<string> {
       this.suggestType === "ea"
         ? EXCALIDRAW_AUTOMATE_INFO
         : this.suggestType === "utils"
-        ? EXCALIDRAW_SCRIPTENGINE_INFO
-        : FRONTMATTER_KEYS_INFO;
+          ? EXCALIDRAW_SCRIPTENGINE_INFO
+          : FRONTMATTER_KEYS_INFO;
     return keys
       .map((sug) => sug.field)
       .filter((sug) => sug.toLowerCase().includes(query));
@@ -75,16 +76,16 @@ export class FieldSuggester extends EditorSuggest<string> {
       this.suggestType === "ea"
         ? "ea."
         : this.suggestType === "utils"
-        ? "utils."
-        : "excalidraw-",
+          ? "utils."
+          : "excalidraw-",
       "",
     );
     const keys =
       this.suggestType === "ea"
         ? EXCALIDRAW_AUTOMATE_INFO
         : this.suggestType === "utils"
-        ? EXCALIDRAW_SCRIPTENGINE_INFO
-        : FRONTMATTER_KEYS_INFO;
+          ? EXCALIDRAW_SCRIPTENGINE_INFO
+          : FRONTMATTER_KEYS_INFO;
     const value = keys.find((f) => f.field === suggestion);
     el.createEl("b", { text });
     el.createEl("br");
@@ -92,7 +93,7 @@ export class FieldSuggester extends EditorSuggest<string> {
       el.createEl("code", { text: value.code });
     }
     if (value.desc) {
-      el.createDiv("div", (el) => (el.innerHTML = value.desc));
+      el.createDiv("div", (el) => setSanitizedHtml(el, value.desc));
     }
   }
 
@@ -103,8 +104,8 @@ export class FieldSuggester extends EditorSuggest<string> {
         this.suggestType === "ea"
           ? EXCALIDRAW_AUTOMATE_INFO
           : this.suggestType === "utils"
-          ? EXCALIDRAW_SCRIPTENGINE_INFO
-          : FRONTMATTER_KEYS_INFO;
+            ? EXCALIDRAW_SCRIPTENGINE_INFO
+            : FRONTMATTER_KEYS_INFO;
       const replacement = `${suggestion}${
         keys.find((f) => f.field === suggestion)?.after
       }`;

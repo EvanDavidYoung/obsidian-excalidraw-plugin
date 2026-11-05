@@ -1,0 +1,1147 @@
+import { App, FuzzyMatch, TFile } from "obsidian";
+import { SuggestionModal } from "./SuggestionModal";
+import { LinkSuggestion } from "src/types/types";
+import type ExcalidrawPlugin from "src/core/main";
+import {
+  getLinkSuggestionsFiltered,
+  getSortedLinkMatches,
+  renderHeadingSuggestionRow,
+  renderLinkSuggestion,
+  renderParagraphSuggestionRow,
+  fuzzyMatchTextItems,
+  fuzzyMatchParagraphsWithId,
+} from "src/shared/Suggesters/LinkSuggesterUtils";
+import { KeyBlocker } from "src/types/excalidrawAutomateTypes";
+import { t } from "src/lang/helpers";
+import { nanoid } from "src/constants/constants";
+import { getEA } from "src/core";
+import { setStyle } from "src/utils/styleUtils";
+import { readKplexOntologyCompletion, isKplexOntologyOfferCurrent, type OntologyCompletionOffer, type OntologyFieldSuggestion } from "./kplexOntologyProvider";
+import { ontologyLinkEdit } from "./ontologyLinkCompletion";
+
+type HeadingSuggestion = {
+  kind: "heading";
+  heading: string;
+  level: number;
+  anchor: string;
+  file: TFile;
+};
+
+type ParagraphSuggestion = {
+  kind: "paragraph";
+  text: string;
+  id?: string;
+  file: TFile;
+  node: { type: string; position?: { start: number; end: { offset: number } } }; // Include 'offset' in 'end'
+};
+
+type TagSuggestion = {
+  kind: "tag";
+  tag: string;
+  count: number;
+};
+
+type FrameSuggestion = {
+  kind: "frame";
+  label: string;
+  target: string;
+  id: string;
+  file: TFile;
+  refKind: "frame" | "clippedframe";
+};
+
+type InlineSuggestion =
+  | LinkSuggestion
+  | HeadingSuggestion
+  | ParagraphSuggestion
+  | TagSuggestion
+  | FrameSuggestion
+  | OntologySuggestion;
+
+type OntologySuggestion = OntologyFieldSuggestion & {kind: "ontology"; offer: OntologyCompletionOffer};
+
+/**
+ * One input-owned popup for links, metadata, tags and optional public K-Plex ontology fields.
+ * The provider owns matching; this class owns editing, keyboard scope and lookup generations.
+ */
+export class InlineLinkSuggester
+  extends SuggestionModal<InlineSuggestion>
+  implements KeyBlocker
+{
+  private readonly getSourcePath: () => string | undefined;
+  private readonly plugin: ExcalidrawPlugin;
+  private readonly widthHost: HTMLElement;
+  private readonly hasCustomWidthHost: boolean;
+  private readonly handleBracketKeyDown: (event: KeyboardEvent) => void;
+  private block = false;
+  private activeOpen = -1;
+  private activeClose = -1;
+  private activeTagStart = -1;
+  private activeTagEnd = -1;
+  private caretPos = 0;
+  private activeAlias: string | null = null;
+  private activeSearchTerm = "";
+  private activeFile: TFile | null = null;
+  private mode:
+    | "file"
+    | "heading"
+    | "block"
+    | "frame"
+    | "clippedframe"
+    | "tag"
+    | "ontology"
+    | null = null;
+  private headingItems: HeadingSuggestion[] = [];
+  private paragraphItems: ParagraphSuggestion[] = [];
+  private frameItems: FrameSuggestion[] = [];
+  private tagItems: TagSuggestion[] = [];
+  private linkItemsLoaded = false;
+  private suggestionGeneration = 0;
+  private ontologyOffer: OntologyCompletionOffer | null = null;
+  private ontologyItems: OntologySuggestion[] = [];
+  private composing = false;
+  private readonly handleCompositionStart: () => void;
+  private readonly handleCompositionEnd: () => void;
+
+  /** Attach to the input's event lifetime; closing a dropdown keeps a connected input reusable. */
+  constructor(
+    app: App,
+    plugin: ExcalidrawPlugin,
+    inputEl: HTMLInputElement | HTMLTextAreaElement,
+    getSourcePath: () => string | undefined,
+    widthWrapper?: HTMLElement,
+    suppressPlaceholder: boolean = false,
+    collisionBoundary?: HTMLElement,
+  ) {
+    super(app, inputEl, [], collisionBoundary);
+    this.plugin = plugin;
+    this.getSourcePath = getSourcePath;
+    this.widthHost = widthWrapper ?? inputEl;
+    this.hasCustomWidthHost = Boolean(widthWrapper);
+    this.handleBracketKeyDown = (event: KeyboardEvent) =>
+      this.onBracketKeyDown(event);
+    this.limit = 20;
+    if (!suppressPlaceholder) {
+      this.setPlaceholder(t("INLINE_HINT"));
+    }
+    this.emptyStateText = "No match";
+    this.syncWidth();
+    this.inputEl.addEventListener("keydown", this.handleBracketKeyDown);
+    this.handleCompositionStart = () => { this.composing = true; this.resetSuggestions(); };
+    this.handleCompositionEnd = () => { this.composing = false; this.onInputChanged(); };
+    this.inputEl.addEventListener("compositionstart", this.handleCompositionStart);
+    this.inputEl.addEventListener("compositionend", this.handleCompositionEnd);
+  }
+
+  public isBlockingKeys() {
+    return this.block;
+  }
+
+  private onBracketKeyDown(event: KeyboardEvent) {
+    if (event.isComposing || this.composing) {
+      // Leave native IME defaults intact while keeping Enter/Escape out of the link editor.
+      event.stopPropagation();
+      return;
+    }
+    if (
+      event.key !== "[" ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.defaultPrevented ||
+      event.isComposing
+    ) {
+      return;
+    }
+
+    const selectionStart = this.inputEl.selectionStart;
+    const selectionEnd = this.inputEl.selectionEnd;
+    if (selectionStart === null || selectionEnd === null) {
+      return;
+    }
+
+    const hasSelection = selectionStart !== selectionEnd;
+    const value = this.inputEl.value;
+    const before = value.substring(0, selectionStart);
+    const selected = value.substring(selectionStart, selectionEnd);
+    const after = value.substring(selectionEnd);
+
+    event.preventDefault();
+
+    const insertion = hasSelection ? `[${selected}]` : "[]";
+    const cursorPos = selectionStart + 1 + (hasSelection ? selected.length : 0);
+    this.inputEl.value = `${before}${insertion}${after}`;
+    this.inputEl.setSelectionRange(cursorPos, cursorPos);
+    this.dispatchInputChange();
+  }
+
+  getItems(): InlineSuggestion[] {
+    return this.items;
+  }
+
+  /**
+   * Keep the suggestion dropdown aligned to the provided width host (input or wrapper).
+   */
+  private syncWidth() {
+    const hostRect = this.widthHost?.getBoundingClientRect();
+    const width = hostRect?.width ?? this.widthHost?.clientWidth;
+
+    if (width && this.hasCustomWidthHost) {
+      setStyle(this.suggestEl, {
+        width: `${width}px`,
+        maxWidth: `${width}px`,
+        minWidth: `${width}px`,
+      });
+      return;
+    }
+
+    const minWidth = Math.max(
+      width ||
+        this.inputEl.clientWidth ||
+        this.inputEl.getBoundingClientRect().width,
+      450,
+    );
+    if (!minWidth) {
+      return;
+    }
+
+    const anchorRect = hostRect ?? this.inputEl.getBoundingClientRect();
+    let availableWidth = this.collisionBoundary
+      ? this.collisionBoundary.innerWidth - 16 //SuggestionModal padding
+      : Math.max(0, (this.inputEl.ownerDocument.defaultView?.innerWidth ?? window.innerWidth) - anchorRect.left - 16);
+
+    if (!this.hasCustomWidthHost) {
+      availableWidth =
+        minWidth <= 450
+          ? Math.min(availableWidth, 450)
+          : Math.min(availableWidth, minWidth);
+    }
+
+    const clampedMinWidth = Math.min(minWidth, availableWidth);
+    setStyle(this.suggestEl, {
+      width: "",
+      minWidth: `${clampedMinWidth}px`,
+      maxWidth: `${availableWidth}px`,
+    });
+  }
+
+  /**
+   * Refreshes the suggestion data (e.g. when vault changes) without recreating the instance.
+   */
+  public refreshItems() {
+    if (!this.linkItemsLoaded) {
+      return;
+    }
+    this.items = getLinkSuggestionsFiltered(this.app);
+  }
+
+  /**
+   * Loads the vault-wide file-link candidates only after a wikilink is active.
+   */
+  private ensureLinkItemsLoaded() {
+    if (this.linkItemsLoaded) {
+      return;
+    }
+    this.items = getLinkSuggestionsFiltered(this.app);
+    this.linkItemsLoaded = true;
+  }
+
+  modifyInput(input: string): string {
+    return input;
+  }
+
+  onInputChanged(): void {
+    const generation = ++this.suggestionGeneration;
+    this.ontologyOffer = null;
+    this.ontologyItems = [];
+    if (this.composing) {
+      this.resetSuggestions();
+      return;
+    }
+    const inputStr = this.modifyInput(this.inputEl.value);
+    this.caretPos = this.inputEl.selectionStart ?? inputStr.length;
+
+    if (
+      (this.inputEl.selectionEnd ?? this.caretPos) -
+        (this.inputEl.selectionStart ?? 0) >
+      0
+    ) {
+      this.resetSuggestions();
+      return;
+    }
+
+    const active = this.findActiveLink(inputStr, this.caretPos);
+    if (active) {
+      this.activeOpen = active.open;
+      this.activeClose = active.close;
+      this.activeTagStart = -1;
+      this.activeTagEnd = -1;
+
+      const context = this.parseLinkContext(
+        inputStr,
+        this.caretPos,
+        active.open,
+        active.close,
+      );
+      this.activeAlias = context.alias;
+      this.activeSearchTerm = context.searchTerm;
+      this.activeFile = context.file;
+      this.mode = context.mode;
+
+      if (context.inAlias) {
+        this.resetSuggestions();
+        return;
+      }
+
+      if (this.mode === "file") {
+        this.ensureLinkItemsLoaded();
+      }
+
+      void (async () => {
+        if (this.mode === "heading") {
+          await this.loadHeadings(this.activeFile);
+        } else if (this.mode === "block") {
+          await this.loadParagraphs(this.activeFile);
+        } else if (this.mode === "frame" || this.mode === "clippedframe") {
+          await this.loadFrames(this.activeFile, this.mode);
+        } else {
+          this.headingItems = [];
+          this.paragraphItems = [];
+          this.frameItems = [];
+        }
+
+        if (generation !== this.suggestionGeneration) {
+          return;
+        }
+        this.tagItems = [];
+        this.block = true;
+        super.onInputChanged();
+      })();
+      return;
+    }
+
+    const activeTag = this.findActiveTag(inputStr, this.caretPos);
+    if (!activeTag) {
+      const offer = readKplexOntologyCompletion(this.inputEl, this.limit);
+      if (offer && offer.items.length) {
+        this.activeOpen = -1;
+        this.activeClose = -1;
+        this.activeTagStart = -1;
+        this.activeTagEnd = -1;
+        this.activeAlias = null;
+        this.activeFile = null;
+        this.mode = "ontology";
+        this.ontologyOffer = offer;
+        this.ontologyItems = offer.items.map(field => ({...field, kind: "ontology", offer}));
+        this.block = true;
+        super.onInputChanged();
+        return;
+      }
+      this.resetSuggestions();
+      return;
+    }
+
+    this.activeOpen = -1;
+    this.activeClose = -1;
+    this.activeTagStart = activeTag.start;
+    this.activeTagEnd = activeTag.end;
+    this.activeAlias = null;
+    this.activeSearchTerm = activeTag.term;
+    this.activeFile = null;
+    this.mode = "tag";
+    this.headingItems = [];
+    this.paragraphItems = [];
+    this.frameItems = [];
+    this.tagItems = this.getTagSuggestions();
+
+    this.block = true;
+    super.onInputChanged();
+  }
+
+  private getTagSuggestions(): TagSuggestion[] {
+    const tags =
+      (
+        this.app.metadataCache as { getTags?: () => Record<string, number> }
+      ).getTags?.() ?? {};
+    return Object.keys(tags)
+      .sort((a, b) => {
+        const countDiff = (tags[b] ?? 0) - (tags[a] ?? 0);
+        if (countDiff !== 0) {
+          return countDiff;
+        }
+        return a.localeCompare(b);
+      })
+      .map((tag) => ({
+        kind: "tag",
+        tag,
+        count: tags[tag] ?? 0,
+      }));
+  }
+
+  private getTagSearchValue(tag: string): string {
+    return tag.startsWith("#") ? tag.substring(1) : tag;
+  }
+
+  getSuggestions(): FuzzyMatch<InlineSuggestion>[] {
+    if (this.mode === "ontology") {
+      // K-Plex already owns inverse-aware filtering and ordering; never rank the rows again.
+      return this.ontologyItems.map<FuzzyMatch<InlineSuggestion>>(item => ({item, match: {score: 0, matches: []}}));
+    }
+    if (this.mode === "tag") {
+      return fuzzyMatchTextItems(
+        this.activeSearchTerm ?? "",
+        this.tagItems,
+        (t) => this.getTagSearchValue(t.tag),
+      );
+    }
+
+    if (this.activeOpen === -1) {
+      return [];
+    }
+
+    if (this.mode === "heading") {
+      return fuzzyMatchTextItems(
+        this.activeSearchTerm ?? "",
+        this.headingItems,
+        (h) => h.heading,
+      );
+    }
+
+    if (this.mode === "block") {
+      return fuzzyMatchParagraphsWithId(
+        this.activeSearchTerm ?? "",
+        this.paragraphItems,
+      );
+    }
+
+    if (this.mode === "frame" || this.mode === "clippedframe") {
+      return fuzzyMatchTextItems(
+        this.activeSearchTerm ?? "",
+        this.frameItems,
+        (f) => f.label,
+      );
+    }
+
+    const term = this.activeSearchTerm ?? "";
+    return getSortedLinkMatches(term, this.items as LinkSuggestion[]);
+  }
+
+  private isHeading(item: InlineSuggestion): item is HeadingSuggestion {
+    return (item as HeadingSuggestion)?.kind === "heading";
+  }
+
+  private isParagraph(item: InlineSuggestion): item is ParagraphSuggestion {
+    return (item as ParagraphSuggestion)?.kind === "paragraph";
+  }
+
+  private isTag(item: InlineSuggestion): item is TagSuggestion {
+    return (item as TagSuggestion)?.kind === "tag";
+  }
+
+  private isFrame(item: InlineSuggestion): item is FrameSuggestion {
+    return (item as FrameSuggestion)?.kind === "frame";
+  }
+
+  getItemText(item: InlineSuggestion): string {
+    if (this.isOntology(item)) return item.name;
+    if (this.isHeading(item)) {
+      return item.heading;
+    }
+    if (this.isParagraph(item)) {
+      return item.text;
+    }
+    if (this.isTag(item)) {
+      return item.tag;
+    }
+    if (this.isFrame(item)) {
+      return item.label;
+    }
+    return item.path + (item.alias ? `|${item.alias}` : "");
+  }
+
+  onChooseItem(item: InlineSuggestion | undefined): void {
+    if (!item) {
+      return;
+    }
+
+    if (this.isOntology(item)) {
+      this.insertOntology(item);
+      return;
+    }
+
+    if (this.isTag(item)) {
+      this.insertTag(item.tag);
+      return;
+    }
+
+    if (this.isHeading(item)) {
+      const linktext = this.app.metadataCache.fileToLinktext(
+        item.file,
+        this.getSourcePath() ?? "",
+        true,
+      );
+      const aliasSuffix =
+        this.activeAlias !== null ? `|${this.activeAlias}` : "";
+      this.insertLink(`[[${linktext}#${item.anchor}${aliasSuffix}]]`);
+      return;
+    }
+
+    if (this.isParagraph(item)) {
+      void (async () => {
+        const id = await this.ensureParagraphHasId(item);
+        if (!id) {
+          return;
+        }
+        const linktext = this.app.metadataCache.fileToLinktext(
+          item.file,
+          this.getSourcePath() ?? "",
+          true,
+        );
+        const aliasSuffix =
+          this.activeAlias !== null ? `|${this.activeAlias}` : "";
+        this.insertLink(`[[${linktext}#^${id}${aliasSuffix}]]`);
+      })();
+      return;
+    }
+
+    if (this.isFrame(item)) {
+      const linktext = this.app.metadataCache.fileToLinktext(
+        item.file,
+        this.getSourcePath() ?? "",
+        true,
+      );
+      const aliasSuffix =
+        this.activeAlias !== null ? `|${this.activeAlias}` : "";
+      this.insertLink(
+        `[[${linktext}#^${item.refKind}=${item.target}${aliasSuffix}]]`,
+      );
+      return;
+    }
+
+    const linkString = this.buildLink(item);
+    this.insertLink(linkString);
+  }
+
+  selectSuggestion(
+    value: FuzzyMatch<InlineSuggestion>,
+    evt: MouseEvent | KeyboardEvent,
+  ) {
+    evt?.preventDefault?.();
+    evt?.stopPropagation?.();
+    void this.onChooseItem(value?.item);
+  }
+
+  open(): void {
+    this.block = true;
+    this.syncWidth();
+    setStyle(this.suggestEl, { pointerEvents: "all" });
+    super.open();
+  }
+
+  renderSuggestion(result: FuzzyMatch<InlineSuggestion>, itemEl: HTMLElement) {
+    const { item } = result || {};
+
+    if (this.isOntology(item)) {
+      itemEl.addClass("excalidraw-ontology-suggestion");
+      itemEl.createDiv({cls: "suggestion-title", text: item.name});
+      if (item.partner) itemEl.createDiv({cls: "suggestion-note", text: `↔ ${item.partner}`});
+      if (item.description) itemEl.createDiv({cls: "suggestion-note", text: item.description});
+      return;
+    }
+
+    if (this.isTag(item)) {
+      const tagItem = item;
+      itemEl.createDiv({ text: tagItem.tag });
+      itemEl.createEl("small", { text: `${tagItem.count}` });
+      return;
+    }
+
+    if (this.isHeading(item)) {
+      const note = item
+        ? this.app.metadataCache.fileToLinktext(
+            item.file,
+            this.getSourcePath() ?? "",
+            true,
+          )
+        : "";
+      renderHeadingSuggestionRow(
+        result as FuzzyMatch<HeadingSuggestion>,
+        note,
+        itemEl,
+      );
+      return;
+    }
+
+    if (this.isParagraph(item)) {
+      const note = item
+        ? this.app.metadataCache.fileToLinktext(
+            item.file,
+            this.getSourcePath() ?? "",
+            true,
+          )
+        : "";
+      renderParagraphSuggestionRow(
+        result as FuzzyMatch<ParagraphSuggestion>,
+        note,
+        itemEl,
+      );
+      return;
+    }
+
+    if (this.isFrame(item)) {
+      const frameItem = item;
+      const note = this.app.metadataCache.fileToLinktext(
+        frameItem.file,
+        this.getSourcePath() ?? "",
+        true,
+      );
+      this.renderFrameSuggestionRow(
+        result as FuzzyMatch<FrameSuggestion>,
+        note,
+        itemEl,
+      );
+      return;
+    }
+
+    renderLinkSuggestion(
+      this.plugin,
+      result as FuzzyMatch<LinkSuggestion>,
+      itemEl,
+      this.emptyStateText,
+    );
+  }
+
+  private buildLink(item: LinkSuggestion): string {
+    const sourcePath = this.getSourcePath();
+    const aliasFromContext = this.activeAlias;
+    const aliasSuffix =
+      aliasFromContext !== null
+        ? `|${aliasFromContext}`
+        : item.alias
+          ? `|${item.alias}`
+          : "";
+    if (item.file) {
+      const linktext = this.app.metadataCache.fileToLinktext(
+        item.file,
+        sourcePath ?? "",
+        true,
+      );
+      return `[[${linktext}${aliasSuffix}]]`;
+    }
+    // unresolved/ghost
+    return `[[${item.path}${aliasSuffix}]]`;
+  }
+
+  private insertLink(link: string) {
+    const cursor = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const start =
+      this.activeOpen >= 0
+        ? this.activeOpen
+        : this.inputEl.value.lastIndexOf("[[", cursor);
+    if (start === -1) {
+      return;
+    }
+
+    const nextOpen = this.inputEl.value.indexOf("[[", start + 2);
+    const fallbackClose = this.findLinkClose(this.inputEl.value, start);
+    const closeBelongsToLink =
+      this.activeClose >= 0
+        ? true
+        : fallbackClose !== -1 && (nextOpen === -1 || fallbackClose < nextOpen);
+    const effectiveClose =
+      this.activeClose >= 0
+        ? this.activeClose
+        : closeBelongsToLink
+          ? fallbackClose
+          : -1;
+    // If no valid closing brackets are present for this link (e.g. another [[ appears first),
+    // only replace up to the current cursor to avoid swallowing subsequent text.
+    const end = effectiveClose >= 0 ? effectiveClose + 2 : cursor;
+
+    const prefix = this.inputEl.value.substring(0, start);
+    const suffix = this.inputEl.value.substring(end);
+    this.inputEl.value = prefix + link + suffix;
+    this.dispatchInputChange();
+    const newPos = start + link.length;
+    this.inputEl.setSelectionRange(newPos, newPos);
+    this.close();
+  }
+
+  private insertTag(tag: string) {
+    if (this.activeTagStart < 0) {
+      return;
+    }
+
+    const start = this.activeTagStart;
+    const end =
+      this.activeTagEnd >= 0
+        ? this.activeTagEnd
+        : (this.inputEl.selectionStart ?? this.inputEl.value.length);
+    const prefix = this.inputEl.value.substring(0, start);
+    const suffix = this.inputEl.value.substring(end);
+    this.inputEl.value = `${prefix}${tag}${suffix}`;
+    this.dispatchInputChange();
+    const newPos = start + tag.length;
+    this.inputEl.setSelectionRange(newPos, newPos);
+    this.close();
+  }
+
+  /** Distinguish provider fields from file/tag/metadata options without interpreting their names. */
+  private isOntology(item: InlineSuggestion | undefined): item is OntologySuggestion {
+    return Boolean(item && "kind" in item && item.kind === "ontology");
+  }
+
+  /** Validate the offered provider/configuration before applying one exact range through the
+   * host-observed input path. Native insertText preserves the browser input undo group; older
+   * hosts retain the existing value/input-event fallback. This never submits the element link. */
+  private insertOntology(item: OntologySuggestion): void {
+    const offer = item.offer, input = this.inputEl;
+    if (offer !== this.ontologyOffer || this.composing || input.disabled || input.readOnly ||
+      !isKplexOntologyOfferCurrent(input, offer, item.name)) {
+      this.close();
+      return;
+    }
+    const edit = ontologyLinkEdit(input.value, offer.range, item.name);
+    if (!edit) { this.close(); return; }
+    this.close();
+    input.focus();
+    input.setSelectionRange(offer.range.start, offer.range.end);
+    let applied = false;
+    try {
+      // Feature-detect the legacy browser editing command: assigning value/setRangeText cannot
+      // retain the input's native undo stack, and some hosts do not expose editing commands.
+      const nativeCommand: unknown = Reflect.get(input.ownerDocument, "execCommand");
+      if (typeof nativeCommand === "function") {
+        applied = Reflect.apply(nativeCommand, input.ownerDocument, ["insertText", false, edit.insertion]) === true;
+      }
+    } catch {
+      // The documented value/event path also supports hosts without native insertText.
+      applied = false;
+    }
+    if (!applied) {
+      if (input.value !== offer.text && input.value !== edit.value) return;
+      input.value = edit.value;
+    }
+    if (input.value !== edit.value) return;
+    this.dispatchInputChange();
+    input.setSelectionRange(edit.caret, edit.caret);
+  }
+
+  private resetSuggestions() {
+    this.close();
+    this.activeOpen = -1;
+    this.activeClose = -1;
+    this.activeTagStart = -1;
+    this.activeTagEnd = -1;
+    this.activeAlias = null;
+    this.activeSearchTerm = "";
+    this.activeFile = null;
+    this.mode = null;
+    this.headingItems = [];
+    this.paragraphItems = [];
+    this.frameItems = [];
+    this.tagItems = [];
+  }
+
+  private parseLinkContext(
+    value: string,
+    caret: number,
+    open: number,
+    close: number,
+  ) {
+    const activeInfo = this.extractActiveInfo(value, caret, open, close);
+    const closeIndex = close >= 0 ? close : value.length;
+    const linkText = value.substring(open + 2, closeIndex);
+    const pipeIndex = linkText.indexOf("|");
+    const linkWithoutAlias =
+      pipeIndex >= 0 ? linkText.substring(0, pipeIndex) : linkText;
+    const hashIndex = linkWithoutAlias.indexOf("#");
+    const caretInLink = Math.max(
+      0,
+      Math.min(caret - (open + 2), linkText.length),
+    );
+    const inSubpath = hashIndex >= 0 && caretInLink > hashIndex;
+    const basePath =
+      hashIndex >= 0
+        ? linkWithoutAlias.substring(0, hashIndex)
+        : linkWithoutAlias;
+    const subpathRaw = inSubpath
+      ? linkWithoutAlias.substring(hashIndex + 1, caretInLink)
+      : "";
+    const file = basePath
+      ? this.app.metadataCache.getFirstLinkpathDest(
+          basePath,
+          this.getSourcePath() ?? "",
+        )
+      : null;
+
+    let mode: "file" | "heading" | "block" | "frame" | "clippedframe" = "file";
+    let searchTerm = activeInfo.searchTerm;
+    if (file && inSubpath) {
+      if (
+        subpathRaw.startsWith("^frame=") &&
+        this.plugin.isExcalidrawFile(file)
+      ) {
+        mode = "frame";
+        searchTerm = subpathRaw.substring("^frame=".length);
+      } else if (
+        subpathRaw.startsWith("^clippedframe=") &&
+        this.plugin.isExcalidrawFile(file)
+      ) {
+        mode = "clippedframe";
+        searchTerm = subpathRaw.substring("^clippedframe=".length);
+      } else if (file.extension === "md") {
+        const isBlockMode = subpathRaw.startsWith("^");
+        mode = isBlockMode ? "block" : "heading";
+        searchTerm = isBlockMode ? subpathRaw.substring(1) : subpathRaw;
+      }
+    }
+
+    return {
+      alias: activeInfo.alias,
+      inAlias: activeInfo.inAlias,
+      searchTerm,
+      file: mode === "file" ? null : file,
+      mode,
+    } as const;
+  }
+
+  private async loadFrames(
+    file: TFile | null,
+    refKind: "frame" | "clippedframe",
+  ) {
+    this.frameItems = [];
+    if (!file || !this.plugin.isExcalidrawFile(file)) {
+      return;
+    }
+
+    const ea = getEA();
+    const scene = await ea?.getSceneFromFile?.(file);
+    const frames = (scene?.elements ?? []).filter(
+      (el: { type: string; isDeleted?: boolean }) =>
+        el?.type === "frame" && !el?.isDeleted,
+    );
+    if (!frames.length) {
+      return;
+    }
+
+    const nameCounts = new Map<string, number>();
+    frames.forEach((frame: { id?: string; name?: string }) => {
+      const rawName = typeof frame?.name === "string" ? frame.name.trim() : "";
+      if (!rawName) {
+        return;
+      }
+      nameCounts.set(rawName, (nameCounts.get(rawName) ?? 0) + 1);
+    });
+
+    this.frameItems = frames.map((frame: { id?: string; name?: string }) => {
+      const id = frame?.id ?? "";
+      const rawName = typeof frame?.name === "string" ? frame.name.trim() : "";
+      const hasName = rawName.length > 0;
+      const isDuplicateName = hasName && (nameCounts.get(rawName) ?? 0) > 1;
+      const label = hasName
+        ? isDuplicateName
+          ? `${rawName} (${id})`
+          : rawName
+        : id;
+      const target = hasName && !isDuplicateName ? rawName : id;
+
+      return {
+        kind: "frame",
+        label,
+        target,
+        id,
+        file,
+        refKind,
+      };
+    });
+  }
+
+  private async loadHeadings(file: TFile | null) {
+    if (!file || file.extension !== "md") {
+      this.headingItems = [];
+      return;
+    }
+
+    const cache = await this.app.metadataCache.blockCache.getForFile(
+      { isCancelled: () => false },
+      file,
+    );
+    const blocks = cache?.blocks ?? [];
+    this.headingItems = blocks
+      .filter(
+        (b: {
+          display: string;
+          node?: { type: string; depth?: number; level?: number };
+        }) => b.display && b.node?.type === "heading",
+      )
+      .map(
+        (b: {
+          display: string;
+          node?: { type: string; depth?: number; level?: number };
+        }) => ({
+          kind: "heading",
+          heading: this.cleanHeading(b.display),
+          anchor: this.cleanHeading(b.display),
+          level: b.node?.depth ?? b.node?.level ?? 1,
+          file,
+        }),
+      );
+  }
+
+  private async loadParagraphs(file: TFile | null) {
+    if (!file || file.extension !== "md") {
+      this.paragraphItems = [];
+      return;
+    }
+
+    const cache = await this.app.metadataCache.blockCache.getForFile(
+      { isCancelled: () => false },
+      file,
+    );
+    const blocks = cache?.blocks ?? [];
+    this.paragraphItems = blocks
+      .filter(
+        (b: { display: string; node?: { type: string } }) =>
+          b.display &&
+          b.node &&
+          (b.node.type === "paragraph" ||
+            b.node.type === "blockquote" ||
+            b.node.type === "listItem" ||
+            b.node.type === "table" ||
+            b.node.type === "callout"),
+      )
+      .map((b: { display: string; node?: { type: string; id?: string } }) => ({
+        kind: "paragraph",
+        text: b.display.trim(),
+        id: b.node?.id,
+        node: b.node,
+        file,
+      }));
+  }
+
+  private cleanHeading(display: string): string {
+    return display.replace(/^#+\s*/, "").trim();
+  }
+
+  private renderFrameSuggestionRow(
+    result: FuzzyMatch<FrameSuggestion>,
+    note: string,
+    itemEl: HTMLElement,
+  ) {
+    const { item, match } = result || {};
+    itemEl.addClass("suggestion-item");
+    itemEl.addClass("mod-complex");
+
+    const contentEl = itemEl.createDiv("suggestion-content");
+    const titleEl = contentEl.createDiv("suggestion-title");
+    if (!item) {
+      titleEl.setText(this.emptyStateText);
+      itemEl.addClass("is-selected");
+      return;
+    }
+
+    this.renderTextWithHighlights(titleEl, item.label, match?.matches ?? []);
+
+    const noteEl = contentEl.createDiv("suggestion-note");
+    noteEl.setText(note ?? "");
+
+    const auxEl = itemEl.createDiv("suggestion-aux");
+    const flair = auxEl.createSpan("suggestion-flair");
+    flair.setText(`^${item.refKind}=${item.target}`);
+  }
+
+  private renderTextWithHighlights(
+    titleEl: HTMLElement,
+    text: string,
+    matches: [number, number][],
+  ) {
+    if (!matches?.length) {
+      titleEl.setText(text);
+      return;
+    }
+
+    const sorted = [...matches].sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < text.length; i++) {
+      const m = sorted.find((range) => range[0] === i);
+      if (m) {
+        const span = createSpan("suggestion-highlight");
+        span.appendText(text.substring(m[0], m[1]));
+        titleEl.appendChild(span);
+        i = m[1] - 1;
+        continue;
+      }
+      titleEl.appendText(text[i]);
+    }
+  }
+
+  private async ensureParagraphHasId(
+    item: ParagraphSuggestion,
+  ): Promise<string | null> {
+    if (item.id) {
+      return item.id;
+    }
+    const offset = item.node?.position?.end?.offset;
+    if (typeof offset !== "number") {
+      // Ensure 'offset' is a number
+      return null;
+    }
+    const fileContents = await this.plugin.app.vault.cachedRead(item.file);
+    const newId = nanoid();
+    await this.plugin.app.vault.modify(
+      item.file,
+      `${fileContents.slice(0, offset)} ^${newId}${fileContents.slice(offset)}`,
+    );
+    await sleep(200);
+    item.id = newId;
+    return newId;
+  }
+
+  // Keep listeners so the suggester can trigger multiple times in the same input session.
+  close(): void {
+    // A pending heading/block/frame lookup must not reopen a retired input's scope.
+    const generation = ++this.suggestionGeneration;
+    this.ontologyOffer = null;
+    this.ontologyItems = [];
+    if (this.inputEl?.isConnected === false) {
+      this.inputEl.removeEventListener("keydown", this.handleBracketKeyDown);
+      this.inputEl.removeEventListener("compositionstart", this.handleCompositionStart);
+      this.inputEl.removeEventListener("compositionend", this.handleCompositionEnd);
+    }
+    // Docking/closing a host can detach the dropdown before its scope is released.
+    // popScope is idempotent and uses the scope's acquisition window, not DOM visibility.
+    this.app.keymap.popScope(this.scope);
+    this.suggester.setSuggestions([]);
+    if (this.popper?.deref()) {
+      this.popper.deref().destroy();
+    }
+    this.suggestEl.detach();
+    this.shouldNotOpen = false;
+    window.setTimeout(() => {
+      if (generation === this.suggestionGeneration) {
+        this.block = false;
+      }
+    });
+  }
+
+  onEscape(): void {
+    this.close();
+    this.shouldNotOpen = false;
+  }
+
+  /** Find this wikilink's delimiter while retaining balanced literal filename brackets.
+   * A filename's final ] next to an outer ontology ] is not a wikilink closer. An independent
+   * subsequent [[ still ends this incomplete context instead of being swallowed on selection. */
+  private findLinkClose(value: string, open: number): number {
+    let depth = 0;
+    for (let index = open + 2; index < value.length; index++) {
+      const char = value[index];
+      if (char === "[") {
+        if (value[index + 1] === "[") return -1;
+        depth++;
+      } else if (char === "]") {
+        if (depth > 0) depth--;
+        else if (value[index + 1] === "]") return index;
+      }
+    }
+    return -1;
+  }
+
+  private findActiveLink(
+    value: string,
+    pos: number,
+  ): { open: number; close: number } | null {
+    let searchFrom = 0;
+    let candidate: { open: number; close: number } | null = null;
+    while (true) {
+      const open = value.indexOf("[[", searchFrom);
+      if (open === -1 || open > pos) {
+        break;
+      }
+      const nextOpen = value.indexOf("[[", open + 2);
+      const closeCandidate = this.findLinkClose(value, open);
+      const closeBelongsToLink =
+        closeCandidate !== -1 && (nextOpen === -1 || closeCandidate < nextOpen);
+      const close = closeBelongsToLink ? closeCandidate : -1;
+      const caretInsideBrackets =
+        pos > open + 1 && (close === -1 || pos <= close);
+      if (caretInsideBrackets) {
+        candidate = { open, close };
+        break;
+      }
+      if (close !== -1) {
+        searchFrom = close + 2;
+      } else if (nextOpen !== -1) {
+        searchFrom = nextOpen + 2;
+      } else {
+        break;
+      }
+    }
+    return candidate;
+  }
+
+  private findActiveTag(
+    value: string,
+    caret: number,
+  ): { start: number; end: number; term: string } | null {
+    const beforeCaret = value.substring(0, caret);
+    const match = beforeCaret.match(/(?:^|[\s([{>])#([^\s#[\](){}|]*)$/);
+    if (!match) {
+      return null;
+    }
+
+    const matchedText = match[0];
+    const hashOffset = matchedText.lastIndexOf("#");
+    if (hashOffset === -1) {
+      return null;
+    }
+
+    const start = caret - (matchedText.length - hashOffset);
+    let end = caret;
+    while (end < value.length && !/[\s#[\](){}|]/.test(value.charAt(end))) {
+      end++;
+    }
+
+    return {
+      start,
+      end,
+      term: match[1] ?? "",
+    };
+  }
+
+  private extractActiveInfo(
+    value: string,
+    caret: number,
+    open: number,
+    close: number,
+  ): { alias: string | null; inAlias: boolean; searchTerm: string } {
+    const closeIndex = close >= 0 ? close : value.length;
+    const linkText = value.substring(open + 2, closeIndex);
+    const caretInLink = Math.max(
+      0,
+      Math.min(caret - (open + 2), linkText.length),
+    );
+    const pipeIndex = linkText.indexOf("|");
+    const alias = pipeIndex >= 0 ? linkText.substring(pipeIndex + 1) : null;
+    const inAlias = pipeIndex >= 0 && caretInLink > pipeIndex;
+
+    const linkPart =
+      pipeIndex >= 0 ? linkText.substring(0, pipeIndex) : linkText;
+    const caretInLinkPart = Math.min(caretInLink, linkPart.length);
+    const rawTerm = linkPart.substring(0, caretInLinkPart);
+    const searchTerm = rawTerm.replace(/^.*[\\/]/, "");
+
+    return { alias, inAlias, searchTerm };
+  }
+
+  private dispatchInputChange() {
+    const eventInit = { bubbles: true, composed: true, cancelable: true };
+    const ownerWindow = this.inputEl.ownerDocument.defaultView ?? window;
+    const inputEvt =
+      typeof ownerWindow.InputEvent !== "undefined"
+        ? new ownerWindow.InputEvent("input", eventInit)
+        : new ownerWindow.Event("input", eventInit);
+    this.inputEl.dispatchEvent(inputEvt);
+    const changeEvt = new ownerWindow.Event("change", eventInit);
+    this.inputEl.dispatchEvent(changeEvt);
+  }
+}

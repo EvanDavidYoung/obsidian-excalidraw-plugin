@@ -37,9 +37,9 @@ export class OpenFileDialog extends FuzzySuggestModal<TFile> {
     this.inputEl.onkeyup = (e) => {
       if (e.key == "Enter" && this.action == openDialogAction.openFile) {
         if (this.containerEl.innerText.includes(EMPTY_MESSAGE)) {
-          this.plugin.createAndOpenDrawing(
+          void this.plugin.createAndOpenDrawing(
             `${this.plugin.settings.folder}/${this.inputEl.value}.excalidraw.md`,
-            this.onNewPane?"new-pane":"active-pane",
+            this.onNewPane ? "new-pane" : "active-pane",
           );
           this.close();
         }
@@ -61,10 +61,14 @@ export class OpenFileDialog extends FuzzySuggestModal<TFile> {
   onChooseItem(item: TFile): void {
     switch (this.action) {
       case openDialogAction.openFile:
-        this.plugin.openDrawing(item, this.onNewPane?"new-pane":"active-pane",true);
+        this.plugin.openDrawing(
+          item,
+          this.onNewPane ? "new-pane" : "active-pane",
+          true,
+        );
         break;
       case openDialogAction.insertLinkToDrawing:
-        this.plugin.embedDrawing(item);
+        void this.plugin.embedDrawing(item);
         break;
     }
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import { cloneForPlacement, draggedElements, makeShelfItem, splitCards } from "./shelf";
 
 const el = (id: string, extra: Record<string, unknown> = {}) =>

@@ -6,3 +6,7 @@ type Lib = typeof import("@zsviczian/excalidraw");
 declare const excalidrawLib: Lib;
 
 export const lib = (): Lib => excalidrawLib;
+
+// Values for updateScene's `captureUpdate`, matching CaptureUpdateAction in
+// src/constants/constants.ts, which garden doesn't import so tests stay light.
+export const CaptureUpdate = { IMMEDIATELY: "IMMEDIATELY", NEVER: "NEVER" } as const;

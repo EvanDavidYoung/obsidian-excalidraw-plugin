@@ -1,5 +1,5 @@
 import { Notice, requestUrl, TFile, type WorkspaceLeaf } from "obsidian";
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import type { ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
 import type ExcalidrawPlugin from "../core/main";
 import type ExcalidrawView from "../view/ExcalidrawView";
@@ -9,7 +9,7 @@ import { middleOf, placeShelfItem, placeSite } from "./placement";
 import { mergePlaced, placedSiteIds, queuedSites } from "./queue";
 import { QueueView, VIEW_TYPE_GARDEN_QUEUE } from "./queueView";
 import { draggedElements, makeShelfItem, splitCards, type ShelfItem } from "./shelf";
-import { lib } from "./excalidraw";
+import { CaptureUpdate, lib } from "./excalidraw";
 import { GardenSettingsModal, withDefaults, type GardenSettings } from "./settings";
 import { GARDEN_CSS } from "./styles";
 import type { Site } from "./sites";
@@ -311,7 +311,7 @@ export class Garden {
         ? { ...e, isDeleted: true, version: e.version + 1, versionNonce: Math.floor(Math.random() * 2 ** 31), updated: Date.now() }
         : e)),
       appState: { selectedElementIds: {} },
-      storeAction: lib().StoreAction.CAPTURE,
+      captureUpdate: CaptureUpdate.IMMEDIATELY,
     } as never);
 
     if (siteIds.length) {

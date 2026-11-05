@@ -14,10 +14,21 @@ data.json
 lib
 dist
 tmp
+deploy.ps1
+eslint_results.json
+bundle-analysis.html
 
 #VSCode
-.vscode
 yarn.lock
 .DS_Store
 .lock
 .lock
+
+# Obsidian files
+Obsidian
+
+repository.zip
+.test-work/
+!tests/vault/.obsidian/plugins/obsidian-excalidraw-plugin/data.json
+!tests/vault/.obsidian/plugins/excalidraw-extras/data.json
+!tests/fixtures/kplex-ontology/data.json

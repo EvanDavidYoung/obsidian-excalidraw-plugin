@@ -1,14 +1,37 @@
 import "obsidian";
+import type { ExcalidrawAutomate } from "src/shared/ExcalidrawAutomate";
+import { errorlog } from "src/utils/coreUtils";
+import type ExcalidrawView from "src/view/ExcalidrawView";
+export type {
+  ExcalidrawAutomate,
+  ViewLinkClickContext,
+  ViewLinkClickHook,
+} from "src/shared/ExcalidrawAutomate";
+export type { ExcalidrawEphemeralState } from "src/types/excalidrawViewTypes";
 //import { ExcalidrawAutomate } from "./ExcalidrawAutomate";
 //export ExcalidrawAutomate from "./ExcalidrawAutomate";
 //export {ExcalidrawAutomate} from  "./ExcaildrawAutomate";
-export type { ExcalidrawBindableElement, ExcalidrawElement, FileId, FillStyle, StrokeRoundness, StrokeStyle } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+export type {
+  ExcalidrawBindableElement,
+  ExcalidrawElement,
+  FileId,
+  FillStyle,
+  StrokeRoundness,
+  StrokeStyle,
+} from "@zsviczian/excalidraw/types/element/src/types";
 export type { Point } from "src/types/types";
-export const getEA = (view?:any): any => {
+export type { MathJaxRenderOptions } from "src/types/mathJaxTypes";
+export type { LucideIconOptions, LucideIconResult, LucideIconEntry } from "src/types/lucideTypes";
+export type { ExcalidrawCLIRequest, ExcalidrawCLIResult, CLICommand, CLIJSON } from "src/types/excalidrawCliTypes";
+export const getEA = (view?: ExcalidrawView): ExcalidrawAutomate | null => {
   try {
     return window.ExcalidrawAutomate.getAPI(view);
-  } catch(e) {
-    console.log({message: "Excalidraw not available", fn: getEA});
+  } catch (error: unknown) {
+    errorlog({
+      message: "Excalidraw not available",
+      fn: getEA,
+      error: error,
+    });
     return null;
   }
-}
+};

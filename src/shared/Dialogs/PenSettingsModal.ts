@@ -1,16 +1,28 @@
 import { ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { ColorComponent, Modal, Setting, TextComponent, ToggleComponent } from "obsidian";
+import {
+  ColorComponent,
+  DropdownComponent,
+  Modal,
+  Setting,
+  SliderComponent,
+  TextComponent,
+  ToggleComponent,
+} from "obsidian";
+import type { StrokeWidthKey } from "@zsviczian/excalidraw/types/common/src/constants";
 import { COLOR_NAMES } from "src/constants/constants";
 import ExcalidrawView from "src/view/ExcalidrawView";
 import ExcalidrawPlugin from "src/core/main";
 import { setPen } from "src/view/components/menu/ObsidianMenu";
-import { ExtendedFillStyle, PenType } from "src/types/penTypes";
+import { ExtendedFillStyle, PenType, PenStyle } from "src/types/penTypes";
 import { getExcalidrawViews } from "src/utils/obsidianUtils";
 import { PENS } from "src/utils/pens";
 import { fragWithHTML } from "src/utils/utils";
-import { __values } from "tslib";
+import { setSanitizedHtml } from "src/utils/htmlUtils";
+import { showColorPicker } from "./ColorPicker";
+import { hideElement, showElement } from "src/utils/styleUtils";
+import { t } from "src/lang/helpers";
 
-const EASINGFUNCTIONS: Record<string,string> = {
+const EASINGFUNCTIONS: Record<string, string> = {
   linear: "linear",
   easeInQuad: "easeInQuad",
   easeOutQuad: "easeOutQuad",
@@ -44,9 +56,28 @@ const EASINGFUNCTIONS: Record<string,string> = {
   easeInOutBounce: "easeInOutBounce",
 };
 
+const FREEDRAW_STROKE_WIDTH_PRESETS: Readonly<Record<StrokeWidthKey, number>> =
+  {
+    extraThin: 0.25,
+    thin: 0.5,
+    medium: 1,
+    bold: 2,
+    extraBold: 4,
+  };
+
+const getStrokeWidthPresetKey = (strokeWidth: number): StrokeWidthKey | "" => {
+  const normalizedStrokeWidth = Math.round(strokeWidth * 100) / 100;
+  const matchedPreset = (
+    Object.entries(FREEDRAW_STROKE_WIDTH_PRESETS) as [StrokeWidthKey, number][]
+  ).find(([, value]) => value === normalizedStrokeWidth);
+  return matchedPreset?.[0] ?? "";
+};
+
 export class PenSettingsModal extends Modal {
   private api: ExcalidrawImperativeAPI;
-  private dirty: boolean = false;
+  private shouldSave: boolean = false;
+  private isDirty: boolean = false;
+  private tempPenSettings: PenStyle;
 
   constructor(
     private plugin: ExcalidrawPlugin,
@@ -55,557 +86,824 @@ export class PenSettingsModal extends Modal {
   ) {
     super(plugin.app);
     this.api = view.excalidrawAPI;
-
+    // Clone the settings so changes aren't applied unless saved
+    this.tempPenSettings = JSON.parse(
+      JSON.stringify(this.plugin.settings.customPens[this.pen]),
+    ) as PenStyle;
   }
 
   onOpen(): void {
     this.containerEl.classList.add("excalidraw-release");
-    this.titleEl.setText(`Pen Settings`);
-    this.createForm();
+    this.titleEl.setText(t("PEN_SETTINGS_TITLE"));
+    void this.createForm();
   }
 
-  async onClose() {
-    if(this.dirty) {
-      getExcalidrawViews(this.app).forEach(excalidrawView=>excalidrawView.updatePinnedCustomPens());
-      this.plugin.saveSettings();
-      const pen = this.plugin.settings.customPens[this.pen]
+  onClose() {
+    if (this.shouldSave && this.isDirty) {
+      // Overwrite actual settings with temp settings
+      this.plugin.settings.customPens[this.pen] = this.tempPenSettings;
+      void this.plugin.saveSettings();
+
+      getExcalidrawViews(this.app, true).forEach((excalidrawView) =>
+        excalidrawView.updatePinnedCustomPens(),
+      );
+
+      const pen = this.plugin.settings.customPens[this.pen];
       const api = this.view.excalidrawAPI;
-      setPen(pen,api);
-      api.setActiveTool({type:"freedraw"});
+      setPen(pen, api);
+      api.setActiveTool({ type: "freedraw" });
     }
-    
+  }
+
+  private addActionButtons(container: HTMLElement) {
+    const actionContainer = container.createDiv(
+      "excalidraw-pen-settings-floating-actions",
+    );
+    new Setting(actionContainer)
+      .addButton((bt) =>
+        bt
+          .setButtonText(t("PEN_SETTINGS_SAVE"))
+          .setCta()
+          .onClick(() => {
+            this.shouldSave = true;
+            this.close();
+          }),
+      )
+      .addButton((bt) =>
+        bt.setButtonText(t("PEN_SETTINGS_CANCEL")).onClick(() => {
+          this.close();
+        }),
+      );
   }
 
   async createForm() {
-    const hexColor = (color:string):[string,string] => {
+    const hexColor = (color: string): [string, string] => {
       let opacity = "";
-      if(COLOR_NAMES.has(color)) {
-        return [COLOR_NAMES.get(color),opacity];
+      if (COLOR_NAMES.has(color)) {
+        return [COLOR_NAMES.get(color), opacity];
       }
-      const style = new Option().style;
-      style.color = color;
-      if(!!style.color) {
-        const digits = style.color.match(/^[^\d]*(\d*)[^\d]*(\d*)[^\d]*(\d*)[^\d]*([\d\.]*)?/);
-        if(!digits) {
-          return [null,opacity]
+      const optionStyle = new Option().style;
+      optionStyle.color = color;
+      if (optionStyle.color) {
+        const digits = optionStyle.color.match(
+          /^[^\d]*(\d*)[^\d]*(\d*)[^\d]*(\d*)[^\d]*([\d.]*)?/,
+        );
+        if (!digits) {
+          return [null, opacity];
         }
         opacity = digits[4]
-          ? (Math.round(parseFloat(digits[4])*255)<<0).toString(16).padStart(2,"0")
+          ? (Math.round(parseFloat(digits[4]) * 255) << 0)
+              .toString(16)
+              .padStart(2, "0")
           : "";
-        return [`#${
-          (parseInt(digits[1])<<0).toString(16).padStart(2,"0")}${
-          (parseInt(digits[2])<<0).toString(16).padStart(2,"0")}${
-          (parseInt(digits[3])<<0).toString(16).padStart(2,"0")}`,opacity]
+        return [
+          `#${(parseInt(digits[1]) << 0).toString(16).padStart(2, "0")}${(
+            parseInt(digits[2]) << 0
+          )
+            .toString(16)
+            .padStart(2, "0")}${(parseInt(digits[3]) << 0)
+            .toString(16)
+            .padStart(2, "0")}`,
+          opacity,
+        ];
       }
-      return [null,opacity]
-    }
+      return [null, opacity];
+    };
 
-    const ps = this.plugin.settings.customPens[this.pen]
+    const ps = this.tempPenSettings;
     const ce = this.contentEl;
-    
-    ce.createEl("h1",{text: "Pen settings"});
+    ce.empty();
+
+    ce.createEl("h1", { text: t("PEN_SETTINGS_HEADING") });
 
     new Setting(ce)
-      .setName("Pen type")
-      .setDesc("Select type of pen")
-      .addDropdown(dropdown => {
+      .setName(t("PEN_SETTINGS_TYPE_NAME"))
+      .setDesc(t("PEN_SETTINGS_TYPE_DESC"))
+      .addDropdown((dropdown) => {
         dropdown
-          .addOption("default", "Excalidraw Default")
-          .addOption("highlighter", "Highlighter")
-          .addOption("finetip", "Fine tip pen")
-          .addOption("fountain", "Fountain pen")
-          .addOption("marker", "Marker with Outline")
-          .addOption("thick-thin", "Mindmap Thick-Thin")
-          .addOption("thin-thick-thin", "Mindmap Thin-Thick-Thin")
+          .addOption("default", t("PEN_SETTINGS_TYPE_DEFAULT"))
+          .addOption("highlighter", t("PEN_SETTINGS_TYPE_HIGHLIGHTER"))
+          .addOption("finetip", t("PEN_SETTINGS_TYPE_FINETIP"))
+          .addOption("fountain", t("PEN_SETTINGS_TYPE_FOUNTAIN"))
+          .addOption("marker", t("PEN_SETTINGS_TYPE_MARKER"))
+          .addOption("thick-thin", t("PEN_SETTINGS_TYPE_THICK_THIN"))
+          .addOption("thin-thick-thin", t("PEN_SETTINGS_TYPE_THIN_THICK_THIN"))
           .setValue(ps.type)
-          .onChange((value:PenType) => {
-            this.dirty = true;
+          .onChange((value: PenType) => {
+            this.isDirty = true;
             ps.type = value;
-          })
+          });
       })
-      .addButton(button =>
-        button
-          .setButtonText("Apply")
-          .onClick(()=> {
-            this.dirty = true;
-            ps.strokeColor = PENS[ps.type].strokeColor;
-            ps.backgroundColor = PENS[ps.type].backgroundColor;
-            ps.fillStyle = PENS[ps.type].fillStyle;
-            ps.strokeWidth = PENS[ps.type].strokeWidth;
-            ps.roughness = PENS[ps.type].roughness;
-            ps.penOptions = {...PENS[ps.type].penOptions};
-            ce.empty();
-            this.createForm();
-          })
-        )
-    
-    let scopeSetting: Setting;
-    
-    scopeSetting = new Setting(ce)
-      .setName(fragWithHTML(ps.freedrawOnly?"Stroke & fill applies to: <b>Freedraw only</b>":"Stroke & fill applies to: <b>All shapes</b>"))
-      .setDesc(fragWithHTML(`<b>"All shapes"</b> means that if for example, you select a blue pen with dashed fill and then switch to a different tool (e.g. to a line, a circle, an arrow - i.e. not the freedraw tool), those will all have the same blue line and dashed fill.<br><b>"Only applies to the freedraw line"</b> means that if for example you are writing black text, and you select a custom pen (e.g. a yellow highlighter), then after using the highlighter you switch to another tool, the previous settings (e.g. black stroke color) will apply to the new shape.`))
-      .addToggle(toggle =>
-        toggle
-          .setValue(ps.freedrawOnly)
-          .onChange(value => {
-            this.dirty = true;
-            scopeSetting.setName(fragWithHTML(value?"Stroke & fill applies to: <b>Freedraw only</b>":"Stroke & fill applies to: <b>All shapes</b>"))
-            ps.freedrawOnly = value;
-          })
-      )
+      .addButton((button) =>
+        button.setButtonText(t("PEN_SETTINGS_APPLY")).onClick(() => {
+          this.isDirty = true;
+          ps.strokeColor = PENS[ps.type].strokeColor;
+          ps.backgroundColor = PENS[ps.type].backgroundColor;
+          ps.fillStyle = PENS[ps.type].fillStyle;
+          ps.strokeWidth = PENS[ps.type].strokeWidth;
+          ps.roughness = PENS[ps.type].roughness;
+          ps.penOptions = { ...PENS[ps.type].penOptions };
+          void this.createForm();
+        }),
+      );
 
-    let scSetting: Setting;
+    const scopeSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          ps.freedrawOnly
+            ? t("PEN_SETTINGS_SCOPE_FREEDRAW_ONLY")
+            : t("PEN_SETTINGS_SCOPE_ALL_SHAPES"),
+        ),
+      )
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_SCOPE_DESC")))
+      .addToggle((toggle) =>
+        toggle.setValue(ps.freedrawOnly).onChange((value) => {
+          this.isDirty = true;
+          scopeSetting.setName(
+            fragWithHTML(
+              value
+                ? t("PEN_SETTINGS_SCOPE_FREEDRAW_ONLY")
+                : t("PEN_SETTINGS_SCOPE_ALL_SHAPES"),
+            ),
+          );
+          ps.freedrawOnly = value;
+        }),
+      );
+
     let sccpComponent: ColorComponent;
     let sctComponent: TextComponent;
-    let strokeSetting: Setting;
+    let strokeUseCurrentToggle: ToggleComponent;
     let [sHex, sOpacity] = hexColor(ps.strokeColor);
-    let sChangeBounce:boolean = false;
+    let sChangeBounce: boolean = false;
 
-    strokeSetting = new Setting(ce)
-      .setName(fragWithHTML(!Boolean(ps.strokeColor) ? "Stroke color: <b>Current</b>" : "Stroke color: <b>Preset color</b>"))
-      .setDesc(fragWithHTML("Use <b>current</b> stroke color of the canvas, or set a specific <b>preset color</b> for the pen"))
-      .addToggle(toggle => 
-        toggle
-          .setValue(!Boolean(ps.strokeColor))
-          .onChange(value=> {
-            this.dirty = true;
-            scSetting.settingEl.style.display = value ? "none" : "";
-            strokeSetting.setName(fragWithHTML(value ? "Stroke color: <b>Current</b>" : "Stroke color: <b>Preset color</b>"))
-            if(value) {
-              delete ps.strokeColor;
-            } else {
-              if(!sctComponent.getValue()) {
-                [sHex,sOpacity] = hexColor("black");
-                sccpComponent.setValue(sHex)
-                sctComponent.setValue("black");
-              }
-              ps.strokeColor = sctComponent.getValue();
+    const strokeSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          !ps.strokeColor
+            ? t("PEN_SETTINGS_STROKE_CURRENT")
+            : t("PEN_SETTINGS_STROKE_PRESET"),
+        ),
+      )
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_STROKE_DESC")))
+      .addToggle((toggle) => {
+        strokeUseCurrentToggle = toggle;
+        toggle.setValue(!ps.strokeColor).onChange((value) => {
+          this.isDirty = true;
+          if (value) {
+            hideElement(scSetting.settingEl);
+          } else {
+            showElement(scSetting.settingEl);
+          }
+          strokeSetting.setName(
+            fragWithHTML(
+              value
+                ? t("PEN_SETTINGS_STROKE_CURRENT")
+                : t("PEN_SETTINGS_STROKE_PRESET"),
+            ),
+          );
+          if (value) {
+            delete ps.strokeColor;
+          } else {
+            if (!sctComponent.getValue()) {
+              [sHex, sOpacity] = hexColor("black");
+              sccpComponent.setValue(sHex);
+              sctComponent.setValue("black");
             }
-          })
-        )
-    
-    scSetting = new Setting(ce)
-		  .setName("Select stroke color")
-      .addButton(button=>
+            ps.strokeColor = sctComponent.getValue();
+          }
+        });
+      });
+
+    const scSetting = new Setting(ce)
+      .setName(t("PEN_SETTINGS_STROKE_SELECT"))
+      .addButton((button) =>
         button
-          .setButtonText("Use Canvas Current")
-          .onClick(()=>{
+          .setButtonText(t("PEN_SETTINGS_USE_CANVAS_CURRENT"))
+          .onClick(() => {
             const st = this.api.getAppState();
-            const color = st.resetCustomPen?.currentItemStrokeColor ?? st.currentItemStrokeColor;
-            [sHex,sOpacity] = hexColor(color);
+            const color =
+              st.resetCustomPen?.currentItemStrokeColor ??
+              st.currentItemStrokeColor;
+            [sHex, sOpacity] = hexColor(color);
             ps.strokeColor = color;
-            this.dirty = true;
+            this.isDirty = true;
             sctComponent.setValue(color);
             sChangeBounce = true;
             sccpComponent.setValue(sHex);
-          })
-        )
-      .addText(text => {
+          }),
+      )
+      .addText((text) => {
         sctComponent = text;
-        text
-          .setValue(ps.strokeColor)
-          .onChange(value=> {
-            sChangeBounce = true;
-            this.dirty = true;
-            ps.strokeColor = value;
-            [sHex,sOpacity] = hexColor(value);
-            if(sHex) sccpComponent.setValue(sHex);
-          })
+        text.setValue(ps.strokeColor).onChange((value) => {
+          sChangeBounce = true;
+          this.isDirty = true;
+          ps.strokeColor = value;
+          [sHex, sOpacity] = hexColor(value);
+          if (sHex) {
+            sccpComponent.setValue(sHex);
+          }
+        });
       })
-		  .addColorPicker(colorpicker => {
+      .addColorPicker((colorpicker) => {
         sccpComponent = colorpicker;
-        colorpicker
-          .setValue(sHex ?? "#000000")
-          .onChange(value => {
-            if(sChangeBounce) {
-              sChangeBounce = false;
-              return;
-            }
-            this.dirty = true;
-            ps.strokeColor = value + sOpacity;
-            sctComponent.setValue(value + sOpacity);
-          })
-        } 
-		  )
+        colorpicker.setValue(sHex ?? "#000000").onChange((value) => {
+          if (sChangeBounce) {
+            sChangeBounce = false;
+            return;
+          }
+          this.isDirty = true;
+          ps.strokeColor = value + sOpacity;
+          sctComponent.setValue(value + sOpacity);
+        });
+      })
+      .addButton((button) => {
+        button.setIcon("swatch-book").onClick(async () => {
+          const selected = await showColorPicker(
+            "elementStroke",
+            button.buttonEl,
+            this.view,
+            true,
+          );
+          if (!selected) {
+            return;
+          }
+          this.isDirty = true;
+          strokeUseCurrentToggle?.setValue(false);
+          sChangeBounce = true;
+          [sHex, sOpacity] = hexColor(selected);
+          ps.strokeColor = selected;
+          sctComponent.setValue(selected);
+          if (sHex) {
+            sccpComponent.setValue(sHex);
+          }
+        });
+      });
 
-    scSetting.settingEl.style.display = !Boolean(ps.strokeColor) ? "none" : "";    
+    if (ps.strokeColor) {
+      showElement(scSetting.settingEl);
+    } else {
+      hideElement(scSetting.settingEl);
+    }
 
-    let bgSetting: Setting;
-    let bgcSetting: Setting;
-    let bgctSetting: Setting;
     let bgcpComponent: ColorComponent;
     let bgctComponent: TextComponent;
     let bgtComponent: ToggleComponent;
-    let fsSetting: Setting;
+    let bgUseCurrentToggle: ToggleComponent;
     let [bgHex, bgOpacity] = hexColor(ps.backgroundColor);
 
-    bgSetting = new Setting(ce)
-      .setName(fragWithHTML(!Boolean(ps.backgroundColor) ? "Background color: <b>Current</b>" : "Background color: <b>Preset color</b>"))
-      .setDesc(fragWithHTML("Toggle to use the <b>current background color</b> of the canvas; or a <b>preset color</b>"))
-      .addToggle(toggle => 
-        toggle
-          .setValue(!Boolean(ps.backgroundColor))
-          .onChange(value=> {
-            this.dirty = true;
-            bgSetting.setName(fragWithHTML(value ? "Background color: <b>Current</b>" : "Background color: <b>Preset color</b>"))
-            bgctSetting.settingEl.style.display = value ? "none" : "";
-            bgcSetting.settingEl.style.display = (value || ps.backgroundColor==="transparent") ? "none" : "";
-            if(value) {
-              delete ps.backgroundColor;
-            } else {
-              if(!bgctComponent.getValue()) {
-                [bgHex, bgOpacity] = hexColor("black");
-                bgcpComponent.setValue(bgHex);
-                bgctComponent.setValue("black");
-              }
-              bgtComponent.setValue(false);
+    const bgSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          !ps.backgroundColor
+            ? t("PEN_SETTINGS_BG_CURRENT")
+            : t("PEN_SETTINGS_BG_PRESET"),
+        ),
+      )
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_BG_DESC")))
+      .addToggle((toggle) => {
+        bgUseCurrentToggle = toggle;
+        toggle.setValue(!ps.backgroundColor).onChange((value) => {
+          this.isDirty = true;
+          bgSetting.setName(
+            fragWithHTML(
+              value
+                ? t("PEN_SETTINGS_BG_CURRENT")
+                : t("PEN_SETTINGS_BG_PRESET"),
+            ),
+          );
+
+          if (value) {
+            hideElement(bgctSetting.settingEl);
+          } else {
+            showElement(bgctSetting.settingEl);
+          }
+
+          if (value || ps.backgroundColor === "transparent") {
+            hideElement(bgcSetting.settingEl);
+          } else {
+            showElement(bgcSetting.settingEl);
+          }
+          if (value) {
+            delete ps.backgroundColor;
+          } else {
+            if (!bgctComponent.getValue()) {
+              [bgHex, bgOpacity] = hexColor("black");
+              bgcpComponent.setValue(bgHex);
+              bgctComponent.setValue("black");
             }
-          })
-        )
+            bgtComponent.setValue(false);
+          }
+        });
+      });
 
-
-    bgctSetting = new Setting(ce)
-      .setName(fragWithHTML(ps.backgroundColor==="transparent" ? "Background: <b>Transparent</b>" : "Color: <b>Preset color</b>"))
-      .setDesc("Background has color or is transparent")
-      .addToggle(toggle => {
+    const bgctSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          ps.backgroundColor === "transparent"
+            ? t("PEN_SETTINGS_BG_TRANSPARENT")
+            : t("PEN_SETTINGS_BG_COLOR_PRESET"),
+        ),
+      )
+      .setDesc(t("PEN_SETTINGS_BG_TRANSPARENT_DESC"))
+      .addToggle((toggle) => {
         bgtComponent = toggle;
         toggle
-          .setValue(ps.backgroundColor==="transparent")
-          .onChange(value => {
-            this.dirty = true;
-            bgcSetting.settingEl.style.display = value ? "none" : "";
-            fsSetting.settingEl.style.display = value ? "none" : "";
-            bgctSetting.setName(fragWithHTML(value ? "Background: <b>Transparent</b>" : "Color: <b>Preset color</b>"))
-            ps.backgroundColor = value ? "transparent" : bgcpComponent.getValue();
-          })
-      }
-    )
-		
-    bgctSetting.settingEl.style.display = !Boolean(ps.backgroundColor) ? "none" : "";
-    let bgChangeBounce:boolean = false;
-    bgcSetting = new Setting(ce)
-		  .setName("Background color")
-      .addButton(button=>
+          .setValue(ps.backgroundColor === "transparent")
+          .onChange((value) => {
+            this.isDirty = true;
+            if (value) {
+              hideElement(bgcSetting.settingEl);
+              hideElement(fsSetting.settingEl);
+            } else {
+              showElement(bgcSetting.settingEl);
+              showElement(fsSetting.settingEl);
+            }
+            bgctSetting.setName(
+              fragWithHTML(
+                value
+                  ? t("PEN_SETTINGS_BG_TRANSPARENT")
+                  : t("PEN_SETTINGS_BG_COLOR_PRESET"),
+              ),
+            );
+            ps.backgroundColor = value
+              ? "transparent"
+              : bgcpComponent.getValue();
+          });
+      });
+
+    if (ps.backgroundColor) {
+      showElement(bgctSetting.settingEl);
+    } else {
+      hideElement(bgctSetting.settingEl);
+    }
+    let bgChangeBounce: boolean = false;
+    const bgcSetting = new Setting(ce)
+      .setName(t("PEN_SETTINGS_BG_COLOR"))
+      .addButton((button) =>
         button
-          .setButtonText("Use Canvas Current")
-          .onClick(()=>{
+          .setButtonText(t("PEN_SETTINGS_USE_CANVAS_CURRENT"))
+          .onClick(() => {
             const st = this.api.getAppState();
-            const color = st.resetCustomPen?.currentItemBackgroundColor ?? st.currentItemBackgroundColor;
-            [bgHex,bgOpacity] = hexColor(color);
+            const color =
+              st.resetCustomPen?.currentItemBackgroundColor ??
+              st.currentItemBackgroundColor;
+            [bgHex, bgOpacity] = hexColor(color);
             ps.backgroundColor = color;
-            this.dirty = true;
+            this.isDirty = true;
             bgctComponent.setValue(color);
             bgChangeBounce = true;
             bgcpComponent.setValue(bgHex);
-          })
-        )
-      .addText(text => {
+          }),
+      )
+      .addText((text) => {
         bgctComponent = text;
-        text
-          .setValue(ps.backgroundColor)
-          .onChange(value=> {
-            bgChangeBounce = true;
-            this.dirty = true;
-            ps.backgroundColor = value;
-            [bgHex,bgOpacity] = hexColor(value);
-            if(bgHex) bgcpComponent.setValue(bgHex);
-          })
+        text.setValue(ps.backgroundColor).onChange((value) => {
+          bgChangeBounce = true;
+          this.isDirty = true;
+          ps.backgroundColor = value;
+          [bgHex, bgOpacity] = hexColor(value);
+          if (bgHex) {
+            bgcpComponent.setValue(bgHex);
+          }
+        });
       })
-		  .addColorPicker(colorpicker => {
+      .addColorPicker((colorpicker) => {
         bgcpComponent = colorpicker;
-        colorpicker
-		      .setValue(bgHex ?? "#000000")
-		      .onChange(value => {
-            if(bgChangeBounce) {
-              bgChangeBounce = false;
-              return;
-            }
-		        this.dirty = true;
-		        ps.backgroundColor = value+bgOpacity;
-            bgctComponent.setValue(value+bgOpacity)
-		      }) 
-        })
-    
-    bgcSetting.settingEl.style.display = (!Boolean(ps.backgroundColor) || ps.backgroundColor==="transparent") ? "none" : "";
+        colorpicker.setValue(bgHex ?? "#000000").onChange((value) => {
+          if (bgChangeBounce) {
+            bgChangeBounce = false;
+            return;
+          }
+          this.isDirty = true;
+          ps.backgroundColor = value + bgOpacity;
+          bgctComponent.setValue(value + bgOpacity);
+        });
+      })
+      .addButton((button) => {
+        button.setIcon("swatch-book").onClick(async () => {
+          const selected = await showColorPicker(
+            "elementBackground",
+            button.buttonEl,
+            this.view,
+            true,
+          );
+          if (!selected) {
+            return;
+          }
+          this.isDirty = true;
+          bgUseCurrentToggle?.setValue(false);
+          bgtComponent?.setValue(false);
+          bgChangeBounce = true;
+          [bgHex, bgOpacity] = hexColor(selected);
+          ps.backgroundColor = selected;
+          bgctComponent.setValue(selected);
+          if (bgHex) {
+            bgcpComponent.setValue(bgHex);
+          }
+        });
+      });
 
-		fsSetting = new Setting(ce)
-		  .setName("Fill Style")
-		  .addDropdown(dropdown =>
+    if (!ps.backgroundColor || ps.backgroundColor === "transparent") {
+      hideElement(bgcSetting.settingEl);
+    } else {
+      showElement(bgcSetting.settingEl);
+    }
+
+    const fsSetting = new Setting(ce)
+      .setName(t("PEN_SETTINGS_FILL_STYLE"))
+      .addDropdown((dropdown) =>
         dropdown
-          .addOption("","Unset")
-          .addOption("dots","Dots (⚠ VERY SLOW performance on large objects!)")
-          .addOption("zigzag","Zigzag")
-          .addOption("zigzag-line","Zigzag-line")
-          .addOption("dashed","Dashed")
-          .addOption("hachure","Hachure")
-          .addOption("cross-hatch","Cross-hatch")
-          .addOption("solid","Solid")
+          .addOption("", t("PEN_SETTINGS_FILL_UNSET"))
+          .addOption("dots", t("PEN_SETTINGS_FILL_DOTS"))
+          .addOption("zigzag", t("PEN_SETTINGS_FILL_ZIGZAG"))
+          .addOption("zigzag-line", t("PEN_SETTINGS_FILL_ZIGZAG_LINE"))
+          .addOption("dashed", t("PEN_SETTINGS_FILL_DASHED"))
+          .addOption("hachure", t("PEN_SETTINGS_FILL_HACHURE"))
+          .addOption("cross-hatch", t("PEN_SETTINGS_FILL_CROSS_HATCH"))
+          .addOption("solid", t("PEN_SETTINGS_FILL_SOLID"))
           .setValue(ps.fillStyle)
           .onChange((value: ExtendedFillStyle) => {
-            this.dirty = true;
+            this.isDirty = true;
             ps.fillStyle = value;
-          }) 
-		  )
-    fsSetting.settingEl.style.display = (!Boolean(ps.backgroundColor) || ps.backgroundColor==="transparent") ? "none" : "";
-    
-    let rSetting: Setting;
-    rSetting = new Setting(ce)
-      .setName(fragWithHTML(`Sloppiness: <b>${ps.roughness === null ? "Not Set" : (ps.roughness<=0.5 ? "Architect (" : (ps.roughness <= 1.5 ? "Artist (" : "Cartoonist ("))}${ps.roughness === null ? "":`${ps.roughness})`}</b>`))
-      .setDesc("Line sloppiness of the shape fill pattern")
-      .addSlider(slider =>
+          }),
+      );
+    if (!ps.backgroundColor || ps.backgroundColor === "transparent") {
+      hideElement(fsSetting.settingEl);
+    } else {
+      showElement(fsSetting.settingEl);
+    }
+
+    const getSloppinessName = (roughness: number | null) => {
+      if (roughness === null) return t("PEN_SETTINGS_NOT_SET");
+      if (roughness <= 0.5)
+        return `${t("PEN_SETTINGS_SLOPPINESS_ARCHITECT")} (${roughness})`;
+      if (roughness <= 1.5)
+        return `${t("PEN_SETTINGS_SLOPPINESS_ARTIST")} (${roughness})`;
+      return `${t("PEN_SETTINGS_SLOPPINESS_CARTOONIST")} (${roughness})`;
+    };
+
+    const rSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_SLOPPINESS")} <b>${getSloppinessName(ps.roughness)}</b>`,
+        ),
+      )
+      .setDesc(t("PEN_SETTINGS_SLOPPINESS_DESC"))
+      .addSlider((slider) =>
         slider
-          .setLimits(-0.5,3,0.5)
+          .setLimits(-0.5, 3, 0.5)
           .setValue(ps.roughness === null ? -0.5 : ps.roughness)
-          .onChange(value => {
-            this.dirty = true;
+          .onChange((value) => {
+            this.isDirty = true;
             ps.roughness = value === -0.5 ? null : value;
-            rSetting.setName(fragWithHTML(`Sloppiness: <b>${ps.roughness === null ? "Not Set" : (ps.roughness<=0.5 ? "Architect (" : (ps.roughness <= 1.5 ? "Artist (" : "Cartoonist ("))}${ps.roughness === null ? "":`${ps.roughness})`}</b>`));
-          })
+            rSetting.setName(
+              fragWithHTML(
+                `${t("PEN_SETTINGS_SLOPPINESS")} <b>${getSloppinessName(ps.roughness)}</b>`,
+              ),
+            );
+          }),
+      );
+
+    let strokeWidthSlider: SliderComponent;
+    let strokeWidthPresetDropdown: DropdownComponent;
+    let strokeWidthPresetUpdateInProgress = false;
+
+    const swSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_STROKE_WIDTH")} <b>${ps.strokeWidth === 0 ? t("PEN_SETTINGS_NOT_SET") : ps.strokeWidth}</b>`,
+        ),
       )
-
-    let swSetting: Setting;
-
-		swSetting = new Setting(ce)
-		  .setName(fragWithHTML(`Stroke Width <b>${ps.strokeWidth === 0 ? "Not Set" : ps.strokeWidth}</b>`))
-      .addSlider(slider =>
+      .addDropdown((dropdown) => {
+        strokeWidthPresetDropdown = dropdown;
+        dropdown
+          .addOption("", t("PEN_SETTINGS_STROKE_PRESET_UNSET"))
+          .addOption("extraThin", t("PEN_SETTINGS_STROKE_PRESET_EXTRA_THIN"))
+          .addOption("thin", t("PEN_SETTINGS_STROKE_PRESET_THIN"))
+          .addOption("medium", t("PEN_SETTINGS_STROKE_PRESET_MEDIUM"))
+          .addOption("bold", t("PEN_SETTINGS_STROKE_PRESET_BOLD"))
+          .addOption("extraBold", t("PEN_SETTINGS_STROKE_PRESET_EXTRA_BOLD"))
+          .setValue(getStrokeWidthPresetKey(ps.strokeWidth))
+          .onChange((value: StrokeWidthKey | "") => {
+            this.isDirty = true;
+            if (!value) {
+              return;
+            }
+            const presetStrokeWidth = FREEDRAW_STROKE_WIDTH_PRESETS[value];
+            ps.strokeWidth = presetStrokeWidth;
+            strokeWidthPresetUpdateInProgress = true;
+            strokeWidthSlider?.setValue(presetStrokeWidth);
+            swSetting.setName(
+              fragWithHTML(
+                `${t("PEN_SETTINGS_STROKE_WIDTH")} <b>${ps.strokeWidth === 0 ? t("PEN_SETTINGS_NOT_SET") : ps.strokeWidth}</b>`,
+              ),
+            );
+          });
+      })
+      .addSlider((slider) => {
+        strokeWidthSlider = slider;
         slider
-          .setLimits(0,5,0.5)
+          .setLimits(0.05, 8, 0.05)
           .setValue(ps.strokeWidth)
-          .onChange(value => {
-            this.dirty = true;
+          .onChange((value) => {
+            this.isDirty = true;
             ps.strokeWidth = value;
-            swSetting.setName(fragWithHTML(`Stroke Width <b>${ps.strokeWidth === 0 ? "Not Set" : ps.strokeWidth}</b>`));
-          }) 
-		  )
-	
+
+            if (strokeWidthPresetUpdateInProgress) {
+              strokeWidthPresetUpdateInProgress = false;
+            } else {
+              strokeWidthPresetDropdown.setValue(
+                getStrokeWidthPresetKey(value),
+              );
+            }
+
+            swSetting.setName(
+              fragWithHTML(
+                `${t("PEN_SETTINGS_STROKE_WIDTH")} <b>${ps.strokeWidth === 0 ? t("PEN_SETTINGS_NOT_SET") : ps.strokeWidth}</b>`,
+              ),
+            );
+          });
+      });
+
+    new Setting(ce).setName(t("PEN_SETTINGS_HIGHLIGHTER")).addToggle((toggle) =>
+      toggle.setValue(ps.penOptions.highlighter).onChange((value) => {
+        this.isDirty = true;
+        ps.penOptions.highlighter = value;
+      }),
+    );
+
     new Setting(ce)
-      .setName("Highlighter pen?")
-      .addToggle(toggle => 
-        toggle
-          .setValue(ps.penOptions.highlighter)
-          .onChange(value => {
-            this.dirty = true;
-            ps.penOptions.highlighter = value;
-          })
-      )
+      .setName(t("PEN_SETTINGS_PRESSURE"))
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_PRESSURE_DESC")))
+      .addToggle((toggle) =>
+        toggle.setValue(!ps.penOptions.constantPressure).onChange((value) => {
+          this.isDirty = true;
+          ps.penOptions.constantPressure = !value;
+          if (ps.penOptions.constantPressure) {
+            hideElement(spSetting.settingEl);
+          } else {
+            showElement(spSetting.settingEl);
+          }
+        }),
+      );
 
-    let spSetting: Setting;
-
-    new Setting(ce)
-      .setName("Pressure sensitive pen?")
-      .setDesc(fragWithHTML(`<b>toggle on</b>: pressure sensitive<br><b>toggle off</b>: constant pressure`))
-      .addToggle(toggle =>
-        toggle
-          .setValue(!ps.penOptions.constantPressure)
-          .onChange(value => {
-            this.dirty = true;
-            ps.penOptions.constantPressure = !value;
-            spSetting.settingEl.style.display = ps.penOptions.constantPressure ? "none" : "";
-          })
-      )
-
-    if(ps.penOptions.hasOutline && ps.penOptions.outlineWidth === 0) {
+    if (ps.penOptions.hasOutline && ps.penOptions.outlineWidth === 0) {
       ps.penOptions.outlineWidth = 0.5;
-      this.dirty = true;
+      this.isDirty = true;
     }
 
-    if(!ps.penOptions.hasOutline && ps.penOptions.outlineWidth > 0) {
+    if (!ps.penOptions.hasOutline && ps.penOptions.outlineWidth > 0) {
       ps.penOptions.outlineWidth = 0;
-      this.dirty = true;
+      this.isDirty = true;
     }
-    
-    let owSetting: Setting;
 
-    owSetting = new Setting(ce)
-      .setName(fragWithHTML(ps.penOptions.outlineWidth === 0 ? `No outline` : `Outline width <b>${ps.penOptions.outlineWidth}</b>`))
-      .setDesc("If the stroke has an outline, this will mean the stroke color is the outline color, and the background color is the pen stroke's fill color. If the pen does not have an outline then the pen color is the stroke color. The Fill Style setting applies to the fill style of the enclosed shape, not of the line itself. The line can only have solid fill.")
-      .addSlider(slider => 
+    const owSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          ps.penOptions.outlineWidth === 0
+            ? t("PEN_SETTINGS_OUTLINE_NONE")
+            : `${t("PEN_SETTINGS_OUTLINE_WIDTH")} <b>${ps.penOptions.outlineWidth}</b>`,
+        ),
+      )
+      .setDesc(t("PEN_SETTINGS_OUTLINE_DESC"))
+      .addSlider((slider) =>
         slider
-          .setLimits(0,8,0.5)
+          .setLimits(0, 8, 0.1)
           .setValue(ps.penOptions.outlineWidth)
-          .onChange(value => {
-            this.dirty = true;
+          .onChange((value) => {
+            this.isDirty = true;
             ps.penOptions.outlineWidth = value;
             ps.penOptions.hasOutline = value > 0;
-            owSetting.setName(fragWithHTML(ps.penOptions.outlineWidth === 0 ? `No outline` : `Outline width <b>${ps.penOptions.outlineWidth}</b>`));
-          })
-       )
-    
+            owSetting.setName(
+              fragWithHTML(
+                ps.penOptions.outlineWidth === 0
+                  ? t("PEN_SETTINGS_OUTLINE_NONE")
+                  : `${t("PEN_SETTINGS_OUTLINE_WIDTH")} <b>${ps.penOptions.outlineWidth}</b>`,
+              ),
+            );
+          }),
+      );
 
-    ce.createEl("h2",{text: "Perfect Freehand settings"});
+    ce.createEl("h2", { text: t("PEN_SETTINGS_PF_HEADING") });
     const p = ce.createEl("p");
-    p.innerHTML = `Read the Perfect Freehand documentation following <a href="https://github.com/steveruizok/perfect-freehand#documentation" target="_blank">this link</a>.`;
+    setSanitizedHtml(p, t("PEN_SETTINGS_PF_DOCS"));
 
-    let tSetting: Setting;
-    tSetting = new Setting(ce)
-      .setName(fragWithHTML(`Thinnning <b>${ps.penOptions.options.thinning}</b>`))
-      .setDesc(fragWithHTML(`The effect of pressure on the stroke's size.<br>To create a stroke with a steady line, set the thinning option to 0.<br>To create a stroke that gets thinner with pressure instead of thicker, use a negative number for the thinning option.`))
-      .addSlider(slider =>
+    const tSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_PF_THINNING")} <b>${ps.penOptions.options.thinning}</b>`,
+        ),
+      )
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_PF_THINNING_DESC")))
+      .addSlider((slider) =>
         slider
-          .setLimits(-1,1,0.05)
+          .setLimits(-1, 1, 0.05)
           .setValue(ps.penOptions.options.thinning)
-          .onChange(value=> {
-            this.dirty;
-            tSetting.setName(fragWithHTML(`Thinnning <b>${value}</b>`));
+          .onChange((value) => {
+            this.isDirty = true;
+            tSetting.setName(
+              fragWithHTML(`${t("PEN_SETTINGS_PF_THINNING")} <b>${value}</b>`),
+            );
             ps.penOptions.options.thinning = value;
-          })
-        )
+          }),
+      );
 
-    let sSetting: Setting;
-    sSetting = new Setting(ce)
-      .setName(fragWithHTML(`Smoothing <b>${ps.penOptions.options.smoothing}</b>`))
-      .setDesc(fragWithHTML(`How much to soften the stroke's edges.`))
-      .addSlider(slider =>
+    const sSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_PF_SMOOTHING")} <b>${ps.penOptions.options.smoothing}</b>`,
+        ),
+      )
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_PF_SMOOTHING_DESC")))
+      .addSlider((slider) =>
         slider
-          .setLimits(0,1,0.05)
+          .setLimits(0, 1, 0.05)
           .setValue(ps.penOptions.options.smoothing)
-          .onChange(value=> {
-            this.dirty;
-            sSetting.setName(fragWithHTML(`Smoothing <b>${value}</b>`));
+          .onChange((value) => {
+            this.isDirty = true;
+            sSetting.setName(
+              fragWithHTML(`${t("PEN_SETTINGS_PF_SMOOTHING")} <b>${value}</b>`),
+            );
             ps.penOptions.options.smoothing = value;
-          })
-        )
+          }),
+      );
 
-    let slSetting: Setting;
-    slSetting = new Setting(ce)
-      .setName(fragWithHTML(`Streamline <b>${ps.penOptions.options.streamline}</b>`))
-      .setDesc(fragWithHTML(`	How much to streamline the stroke.`))
-      .addSlider(slider =>
+    const slSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_PF_STREAMLINE")} <b>${ps.penOptions.options.streamline}</b>`,
+        ),
+      )
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_PF_STREAMLINE_DESC")))
+      .addSlider((slider) =>
         slider
-          .setLimits(0,1,0.05)
+          .setLimits(0, 1, 0.05)
           .setValue(ps.penOptions.options.streamline)
-          .onChange(value=> {
-            this.dirty;
-            slSetting.setName(fragWithHTML(`Streamline <b>${value}</b>`));
+          .onChange((value) => {
+            this.isDirty = true;
+            slSetting.setName(
+              fragWithHTML(
+                `${t("PEN_SETTINGS_PF_STREAMLINE")} <b>${value}</b>`,
+              ),
+            );
             ps.penOptions.options.streamline = value;
-          })
-        )
+          }),
+      );
 
     new Setting(ce)
-    .setName("Easing function")
-    .setDesc(fragWithHTML(`An easing function for the tapering effect. For more info <a href="https://easings.net/#" target="_blank">click here</a>`))
-    .addDropdown(dropdown =>
-      dropdown
-        .addOptions(EASINGFUNCTIONS)
-        .setValue(ps.penOptions.options.easing)
-        .onChange(value => {
-          this.dirty = true;
-          ps.penOptions.options.easing = value;
-        })
-      )
-
-    spSetting = new Setting(ce)
-      .setName("Simulate Pressure")
-      .setDesc("Whether to simulate pressure based on velocity.")
-      .addDropdown(dropdown =>
+      .setName(t("PEN_SETTINGS_EASING"))
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_EASING_DESC")))
+      .addDropdown((dropdown) =>
         dropdown
-          .addOption("true","Always")
-          .addOption("false","Never")
-          .addOption("","Yes for mouse, No for pen")
+          .addOptions(EASINGFUNCTIONS)
+          .setValue(ps.penOptions.options.easing)
+          .onChange((value) => {
+            this.isDirty = true;
+            ps.penOptions.options.easing = value;
+          }),
+      );
+
+    const spSetting = new Setting(ce)
+      .setName(t("PEN_SETTINGS_SIMULATE_PRESSURE"))
+      .setDesc(t("PEN_SETTINGS_SIMULATE_PRESSURE_DESC"))
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("true", t("PEN_SETTINGS_SIMULATE_PRESSURE_ALWAYS"))
+          .addOption("false", t("PEN_SETTINGS_SIMULATE_PRESSURE_NEVER"))
+          .addOption("", t("PEN_SETTINGS_SIMULATE_PRESSURE_MOUSE"))
           .setValue(
             ps.penOptions.options.simulatePressure === true
-            ? "true" 
-            : (ps.penOptions.options.simulatePressure === false
-              ? "false"
-              : "")
+              ? "true"
+              : ps.penOptions.options.simulatePressure === false
+                ? "false"
+                : "",
           )
-          .onChange(value=>{
-            this.dirty = true;
-            switch(value) {
-              case "true": ps.penOptions.options.simulatePressure = true; break;
-              case "false": ps.penOptions.options.simulatePressure = false; break;
-              default: delete ps.penOptions.options.simulatePressure;
+          .onChange((value) => {
+            this.isDirty = true;
+            switch (value) {
+              case "true":
+                ps.penOptions.options.simulatePressure = true;
+                break;
+              case "false":
+                ps.penOptions.options.simulatePressure = false;
+                break;
+              default:
+                delete ps.penOptions.options.simulatePressure;
             }
-          })
-        )
-    spSetting.settingEl.style.display = ps.penOptions.constantPressure ? "none" : "";
+          }),
+      );
 
-    ce.createEl("h3",{text: "Start"});
-    ce.createEl("p",{text: "Tapering options for the start of the line."})
+    if (ps.penOptions.constantPressure) {
+      hideElement(spSetting.settingEl);
+    } else {
+      showElement(spSetting.settingEl);
+    }
+
+    ce.createEl("h3", { text: t("PEN_SETTINGS_START_HEADING") });
+    ce.createEl("p", { text: t("PEN_SETTINGS_START_DESC") });
 
     new Setting(ce)
-      .setName("Cap Start")
-      .setDesc("Whether to draw a cap")
-      .addToggle(toggle=>
-        toggle
-          .setValue(ps.penOptions.options.start.cap)
-          .onChange(value=> {
-            this.dirty = true;
-            ps.penOptions.options.start.cap = value;
-          })
+      .setName(t("PEN_SETTINGS_CAP_START"))
+      .setDesc(t("PEN_SETTINGS_CAP_DESC"))
+      .addToggle((toggle) =>
+        toggle.setValue(ps.penOptions.options.start.cap).onChange((value) => {
+          this.isDirty = true;
+          ps.penOptions.options.start.cap = value;
+        }),
+      );
+
+    const stSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_TAPER")} <b>${ps.penOptions.options.start.taper === true ? "true" : ps.penOptions.options.start.taper}</b>`,
+        ),
       )
-
-    let stSetting: Setting;
-    stSetting = new Setting(ce)
-      .setName(fragWithHTML(`Taper: <b>${ps.penOptions.options.start.taper === true ? "true" : ps.penOptions.options.start.taper}</b>`))
-      .setDesc("The distance to taper. If set to true, the taper will be the total length of the stroke.")
-      .addSlider(slider=>
+      .setDesc(t("PEN_SETTINGS_TAPER_DESC"))
+      .addSlider((slider) =>
         slider
-          .setLimits(0,151,1)
-          .setValue(typeof ps.penOptions.options.start.taper === "boolean" ? 151 : ps.penOptions.options.start.taper)
-          .onChange(value => {
-            this.dirty;
+          .setLimits(0, 151, 1)
+          .setValue(
+            typeof ps.penOptions.options.start.taper === "boolean"
+              ? 151
+              : ps.penOptions.options.start.taper,
+          )
+          .onChange((value) => {
+            this.isDirty = true;
             ps.penOptions.options.start.taper = value === 151 ? true : value;
-            stSetting.setName(fragWithHTML(`Taper: <b>${ps.penOptions.options.start.taper === true ? "true" : ps.penOptions.options.start.taper}</b>`));
-          })
-        )
+            stSetting.setName(
+              fragWithHTML(
+                `${t("PEN_SETTINGS_TAPER")} <b>${ps.penOptions.options.start.taper === true ? "true" : ps.penOptions.options.start.taper}</b>`,
+              ),
+            );
+          }),
+      );
 
     new Setting(ce)
-      .setName("Easing function")
-      .setDesc(fragWithHTML(`An easing function for the tapering effect. For more info <a href="https://easings.net/#" target="_blank">click here</a>`))
-      .addDropdown(dropdown =>
+      .setName(t("PEN_SETTINGS_EASING"))
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_EASING_DESC")))
+      .addDropdown((dropdown) =>
         dropdown
           .addOptions(EASINGFUNCTIONS)
           .setValue(ps.penOptions.options.start.easing)
-          .onChange(value => {
-            this.dirty = true;
+          .onChange((value) => {
+            this.isDirty = true;
             ps.penOptions.options.start.easing = value;
-          })
-        )
+          }),
+      );
 
-
-    ce.createEl("h3",{text: "End"});
-    ce.createEl("p",{text: "Tapering options for the end of the line."})
+    ce.createEl("h3", { text: t("PEN_SETTINGS_END_HEADING") });
+    ce.createEl("p", { text: t("PEN_SETTINGS_END_DESC") });
 
     new Setting(ce)
-      .setName("Cap End")
-      .setDesc("Whether to draw a cap")
-      .addToggle(toggle=>
-        toggle
-          .setValue(ps.penOptions.options.end.cap)
-          .onChange(value=> {
-            this.dirty = true;
-            ps.penOptions.options.end.cap = value;
-          })
+      .setName(t("PEN_SETTINGS_CAP_END"))
+      .setDesc(t("PEN_SETTINGS_CAP_DESC"))
+      .addToggle((toggle) =>
+        toggle.setValue(ps.penOptions.options.end.cap).onChange((value) => {
+          this.isDirty = true;
+          ps.penOptions.options.end.cap = value;
+        }),
+      );
+
+    const etSetting = new Setting(ce)
+      .setName(
+        fragWithHTML(
+          `${t("PEN_SETTINGS_TAPER")} <b>${ps.penOptions.options.end.taper === true ? "true" : ps.penOptions.options.end.taper}</b>`,
+        ),
       )
-
-    let etSetting: Setting;
-    etSetting = new Setting(ce)
-      .setName(fragWithHTML(`Taper: <b>${ps.penOptions.options.end.taper === true ? "true" : ps.penOptions.options.end.taper}</b>`))
-      .setDesc("The distance to taper. If set to true, the taper will be the total length of the stroke.")
-      .addSlider(slider=>
+      .setDesc(t("PEN_SETTINGS_TAPER_DESC"))
+      .addSlider((slider) =>
         slider
-          .setLimits(0,151,1)
-          .setValue(typeof ps.penOptions.options.end.taper === "boolean" ? 151 : ps.penOptions.options.end.taper)
-          .onChange(value => {
-            this.dirty;
+          .setLimits(0, 151, 1)
+          .setValue(
+            typeof ps.penOptions.options.end.taper === "boolean"
+              ? 151
+              : ps.penOptions.options.end.taper,
+          )
+          .onChange((value) => {
+            this.isDirty = true;
             ps.penOptions.options.end.taper = value === 151 ? true : value;
-            etSetting.setName(fragWithHTML(`Taper: <b>${ps.penOptions.options.end.taper === true ? "true" : ps.penOptions.options.end.taper}</b>`));
-          })
-        )
+            etSetting.setName(
+              fragWithHTML(
+                `${t("PEN_SETTINGS_TAPER")} <b>${ps.penOptions.options.end.taper === true ? "true" : ps.penOptions.options.end.taper}</b>`,
+              ),
+            );
+          }),
+      );
 
     new Setting(ce)
-      .setName("Easing function")
-      .setDesc(fragWithHTML(`An easing function for the tapering effect. For more info <a href="https://easings.net/#" target="_blank">click here</a>`))
-      .addDropdown(dropdown =>
+      .setName(t("PEN_SETTINGS_EASING"))
+      .setDesc(fragWithHTML(t("PEN_SETTINGS_EASING_DESC")))
+      .addDropdown((dropdown) =>
         dropdown
           .addOptions(EASINGFUNCTIONS)
           .setValue(ps.penOptions.options.end.easing)
-          .onChange(value => {
-            this.dirty = true;
+          .onChange((value) => {
+            this.isDirty = true;
             ps.penOptions.options.end.easing = value;
-          })
-        )
-    
+          }),
+      );
+
+    // Bottom buttons
+    this.addActionButtons(ce);
   }
 }

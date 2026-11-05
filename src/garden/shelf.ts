@@ -1,4 +1,4 @@
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import type { BinaryFileData, BinaryFiles } from "@zsviczian/excalidraw/types/excalidraw/types";
 
 /**

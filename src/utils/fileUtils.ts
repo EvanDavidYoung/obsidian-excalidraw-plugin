@@ -1,35 +1,44 @@
 import { DataURL } from "@zsviczian/excalidraw/types/excalidraw/types";
-import { App, loadPdfJs, normalizePath, Notice, requestUrl, RequestUrlResponse, TAbstractFile, TFile, TFolder, Vault } from "obsidian";
-import { DEVICE, EXCALIDRAW_PLUGIN, FRONTMATTER_KEYS, URLFETCHTIMEOUT } from "src/constants/constants";
-import { IMAGE_MIME_TYPES, MimeType } from "../shared/EmbeddedFileLoader";
-import { ExcalidrawSettings } from "src/core/settings";
-import { errorlog, getDataURL } from "./utils";
-import ExcalidrawPlugin from "src/core/main";
-import { ANNOTATED_PREFIX, CROPPED_PREFIX } from "./carveout";
-import { getAttachmentsFolderAndFilePath } from "./obsidianUtils";
+import {
+  App,
+  loadPdfJs,
+  MetadataCache,
+  normalizePath,
+  Notice,
+  requestUrl,
+  RequestUrlResponse,
+  TAbstractFile,
+  TFile,
+  TFolder,
+  Vault,
+} from "obsidian";
+import {
+  DEVICE,
+  EXCALIDRAW_PLUGIN,
+  FRONTMATTER_KEYS,
+  URLFETCHTIMEOUT,
+} from "src/constants/constants";
+import type { ExcalidrawSettings } from "src/core/settingsDefaults";
+import { errorlog, getDataURL } from "./coreUtils";
+import type ExcalidrawPlugin from "src/core/main";
+import {
+  getAttachmentsFolderAndFilePath,
+  splitFolderAndFilename,
+} from "./pathUtils";
+import type ExcalidrawView from "src/view/ExcalidrawView";
+import { IMAGE_MIME_TYPES, MimeType } from "src/types/embeddedFileLoaderTypes";
+import type { PdfJsDocumentProxy } from "src/types/pdfJsTypes";
+import { setElementDisplay } from "./htmlUtils";
+import {
+  collectReachableDependencyValues,
+  DependencyGraph,
+  DependencyGraphNode,
+  hasReachableDependency,
+} from "./nestedDependencyTraversal";
+export { splitFolderAndFilename } from "./pathUtils";
 
-/**
- * Splits a full path including a folderpath and a filename into separate folderpath and filename components
- * @param filepath
- * @returns folderpath will be normalized. This means "/" for root folder and no trailing "/" for other folders
- */
+declare const mainDocument: Document;
 type ImageExtension = keyof typeof IMAGE_MIME_TYPES;
-
-export function splitFolderAndFilename(filepath: string): {
-  folderpath: string;
-  filename: string;
-  basename: string;
-  extension: string;
-} {
-  const lastIndex = filepath.lastIndexOf("/");
-  const filename = lastIndex == -1 ? filepath : filepath.substring(lastIndex + 1);
-  return {
-    folderpath: normalizePath(filepath.substring(0, lastIndex)),
-    filename,
-    basename: filename.replace(/\.[^/.]+$/, ""),
-    extension: filename.substring(filename.lastIndexOf(".") + 1),
-  };
-}
 
 /**
  * Download data as file from Obsidian, to store on local device
@@ -37,15 +46,41 @@ export function splitFolderAndFilename(filepath: string): {
  * @param data
  * @param filename
  */
- export const download = (encoding: string, data: any, filename: string) => {
-  const element = document.createElement("a");
+export const download = (
+  encoding: string | null,
+  data: string | ArrayBuffer | null,
+  filename: string,
+) => {
+  if (typeof data !== "string") {
+    return;
+  }
+  const element = mainDocument.body.createEl("a");
+  setElementDisplay(element, "none");
   element.setAttribute("href", (encoding ? `${encoding},` : "") + data);
   element.setAttribute("download", filename);
-  element.style.display = "none";
-  document.body.appendChild(element);
   element.click();
-  document.body.removeChild(element);
-}
+  mainDocument.body.removeChild(element);
+};
+
+/**
+ * Downloads a blob without converting it to a base64 data URL.
+ *
+ * @remarks
+ * Object URLs avoid the large temporary strings and 33% base64 expansion that
+ * can otherwise exhaust Electron's renderer process for large SVG or PNG files.
+ */
+export const downloadBlob = (blob: Blob, filename: string): void => {
+  const ownerWindow = mainDocument.defaultView;
+  const urlApi = ownerWindow?.URL ?? URL;
+  const objectUrl = urlApi.createObjectURL(blob);
+  const element = mainDocument.body.createEl("a");
+  setElementDisplay(element, "none");
+  element.setAttribute("href", objectUrl);
+  element.setAttribute("download", filename);
+  element.click();
+  mainDocument.body.removeChild(element);
+  (ownerWindow ?? window).setTimeout(() => urlApi.revokeObjectURL(objectUrl), 1000);
+};
 
 /**
  * Generates the image filename based on the excalidraw filename
@@ -69,7 +104,7 @@ export function splitFolderAndFilename(filepath: string): {
  * Generates the image filename based on the excalidraw filename
  * @param path - path to the excalidraw file
  * @param extension - extension without the preceeding "."
- * @returns 
+ * @returns
  */
 export function getIMGFilename(path: string, extension: string): string {
   return `${path.substring(0, path.lastIndexOf("."))}.${extension}`;
@@ -114,8 +149,8 @@ export function getDrawingFilename(settings: ExcalidrawSettings): string {
     (settings.compatibilityMode
       ? ".excalidraw"
       : settings.useExcalidrawExtension
-      ? ".excalidraw.md"
-      : ".md")
+        ? ".excalidraw.md"
+        : ".md")
   );
 }
 
@@ -132,8 +167,8 @@ export function getEmbedFilename(
     (settings.compatibilityMode
       ? ".excalidraw"
       : settings.useExcalidrawExtension
-      ? ".excalidraw.md"
-      : ".md")
+        ? ".excalidraw.md"
+        : ".md")
   ).trim();
 }
 
@@ -141,50 +176,72 @@ export function getEmbedFilename(
  * Open or create a folderpath if it does not exist
  * @param folderpath
  */
-export async function checkAndCreateFolder(folderpath: string):Promise<TFolder> {
+export async function checkAndCreateFolder(
+  folderpath: string,
+): Promise<TFolder> {
   const vault = EXCALIDRAW_PLUGIN.app.vault;
   folderpath = normalizePath(folderpath);
   //https://github.com/zsviczian/obsidian-excalidraw-plugin/issues/658
-  //@ts-ignore
   const folder = vault.getAbstractFileByPathInsensitive(folderpath);
   if (folder && folder instanceof TFolder) {
-    return;
+    return folder;
   }
   if (folder && folder instanceof TFile) {
-    new Notice(`The folder cannot be created because it already exists as a file: ${folderpath}.`)
+    new Notice(
+      `The folder cannot be created because it already exists as a file: ${folderpath}.`,
+    );
   }
   return await vault.createFolder(folderpath);
 }
 
-export const getURLImageExtension = (url: string):string => {
+export const getURLImageExtension = (url: string): string => {
   const corelink = url.split("?")[0];
-  return corelink.substring(corelink.lastIndexOf(".")+1);
-} 
+  return corelink.substring(corelink.lastIndexOf(".") + 1);
+};
 
-export const getMimeType = (extension: string):MimeType => {
-  if(IMAGE_MIME_TYPES.hasOwnProperty(extension)) {
+export const getMimeType = (extension: string): MimeType => {
+  if (Object.hasOwn(IMAGE_MIME_TYPES, extension)) {
     return IMAGE_MIME_TYPES[extension as ImageExtension];
-  };
-  switch (extension) {
-    case "md":   return "image/svg+xml";
-    default:     return "application/octet-stream";
   }
-}
+  switch (extension) {
+    case "md":
+      return "image/svg+xml";
+    default:
+      return "application/octet-stream";
+  }
+};
 
-// using fetch API
-const getFileFromURL = async (url: string, mimeType: MimeType, timeout: number = URLFETCHTIMEOUT): Promise<RequestUrlResponse> => {
+//declared in rollup.config.mjs
+declare const deliberateFetch: (
+  payload: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+// Using fetch as primary for maximum compatibility with CORS/image endpoints.
+// fetch is used here because requestUrl sometimes fails for certain endpoints (e.g. Firebase Storage, see comment below).
+// This is a network request, not a vault or blob:app:// read.
+const getFileFromURL = async (
+  url: string,
+  mimeType: MimeType,
+  timeout: number = URLFETCHTIMEOUT,
+): Promise<RequestUrlResponse> => {
   try {
     const timeoutPromise = new Promise<Response>((resolve) =>
-      setTimeout(() => resolve(null), timeout)
+      window.setTimeout(() => resolve(null), timeout),
     );
-    
+
+    // fetch is used here for broad compatibility with image endpoints, including those that fail with requestUrl.
     const response = await Promise.race([
-      fetch(url, { mode: 'no-cors' }), //cors error cannot be caught
+      deliberateFetch(url, { mode: "no-cors" }), // CORS error cannot be caught
       timeoutPromise,
     ]);
 
     if (!response) {
-      errorlog({ where: getFileFromURL, message: `URL did not load within the timeout period of ${timeout}ms.\n\nTry force-saving again in a few seconds.\n\n${url}`, url: url });
+      errorlog({
+        where: getFileFromURL,
+        message: `URL did not load within the timeout period of ${timeout}ms.\n\nTry force-saving again in a few seconds.\n\n${url}`,
+        url,
+      });
       return null;
     }
 
@@ -193,107 +250,117 @@ const getFileFromURL = async (url: string, mimeType: MimeType, timeout: number =
     return {
       status: response.status,
       headers: Object.fromEntries(response.headers.entries()),
-      arrayBuffer: arrayBuffer,
+      arrayBuffer,
       json: null,
       text: null,
     };
-  } catch (e) {
-    //errorlog({ where: getFileFromURL, message: e.message, url: url });
+  } catch (error: unknown) {
+    errorlog({
+      where: getFileFromURL,
+      error,
+      message: "unexpected error in getFileFromURL",
+    });
     return null;
   }
 };
 
-// using Obsidian requestUrl (this failed on a firebase link)
-// https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FJSG%2FfTMP6WGQRC.png?alt=media&token=6d2993b4-e629-46b6-98d1-133af7448c49
-const getFileFromURLFallback = async (url: string, mimeType: MimeType, timeout: number = URLFETCHTIMEOUT):Promise<RequestUrlResponse> => {
+// Using requestUrl as a fallback for endpoints where fetch fails (e.g. CORS/network restrictions).
+// This is a network request, not a vault or blob:app:// read.
+// Note: requestUrl sometimes fails for Firebase Storage and similar endpoints (see above), so fetch is preferred as primary.
+// example: https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FJSG%2FfTMP6WGQRC.png?alt=media&token=6d2993b4-e629-46b6-98d1-133af7448c49
+const getFileFromURLFallback = async (
+  url: string,
+  mimeType: MimeType,
+  timeout: number = URLFETCHTIMEOUT,
+): Promise<RequestUrlResponse> => {
   try {
     const timeoutPromise = new Promise<RequestUrlResponse | null>((resolve) =>
-      setTimeout(() => resolve(null), timeout)
+      window.setTimeout(() => resolve(null), timeout),
     );
 
     return await Promise.race([
       timeoutPromise,
-      requestUrl({url: url, throw: false }), //if method: "get" is added it won't load images on Android, contentType: mimeType,
-    ])
-  } catch (e) {
-    errorlog({where: getFileFromURLFallback, message: `URL did not load within timeout period of ${timeout}ms`, url: url});
+      requestUrl({ url, throw: false }), // if method: "get" is added it won't load images on Android, contentType: mimeType
+    ]);
+  } catch (error) {
+    console.error(
+      "unexpected error in getFileFromURLFallback",
+      getFileFromURLFallback,
+      error,
+    );
+    errorlog({
+      where: getFileFromURLFallback,
+      message: `URL did not load within timeout period of ${timeout}ms`,
+      url,
+    });
     return null;
   }
-}
-
-export const getDataURLFromURL = async (url: string, mimeType: MimeType, timeout: number = URLFETCHTIMEOUT): Promise<DataURL> => {
-  let response = await getFileFromURL(url, mimeType, timeout);
-  if(!response || response?.status !== 200) {
-    response = await getFileFromURLFallback(url, mimeType, timeout);
-  }
-  return response && response.status === 200
-    ? await getDataURL(response.arrayBuffer, mimeType)
-    : url as DataURL;
-};
-
-/*
-const timeoutPromise = (timeout: number) => {
-  return new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`Timeout after ${timeout}ms`)), timeout)
-  );
 };
 
 export const getDataURLFromURL = async (
   url: string,
   mimeType: MimeType,
-  timeout: number = URLFETCHTIMEOUT
+  timeout: number = URLFETCHTIMEOUT,
 ): Promise<DataURL> => {
-  return Promise.race([
-    new Promise<DataURL>((resolve, reject) => {
-      const img = new Image();
+  let response = await getFileFromURL(url, mimeType, timeout);
+  if (!response || response?.status !== 200) {
+    response = await getFileFromURLFallback(url, mimeType, timeout);
+  }
+  return response && response.status === 200
+    ? await getDataURL(response.arrayBuffer, mimeType)
+    : (url as DataURL);
+};
 
-      // Add an 'onload' event listener to handle image loading success
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-
-        if (!ctx) {
-          reject(new Error('Canvas context is not supported.'));
-          return;
-        }
-
-        // Draw the image on the canvas.
-        ctx.drawImage(img, 0, 0);
-
-        // Get the image data from the canvas.
-        const dataURL = canvas.toDataURL(mimeType) as DataURL;
-        resolve(dataURL);
-      };
-
-      // Add an 'onerror' event listener to handle image loading failure
-      img.onerror = () => {
-        reject(new Error('Failed to load image: ' + url));
-      };
-
-      // Set the 'src' attribute to the image URL to start loading the image.
-      img.src = url;
-    }),
-    timeoutPromise(timeout)
-  ]);
-};*/
+/**
+ * Decodes a base64 data URL into binary data, fetching remote URLs first.
+ *
+ * @param dataURL - A base64 data URL or an HTTP, HTTPS, or FTP URL.
+ * @returns The decoded bytes, or `null` when the input cannot be resolved to a
+ * base64 payload.
+ * @remarks
+ * Remote URL handling intentionally preserves the existing MIME inference and
+ * `getDataURLFromURL()` fallback behavior used on desktop and mobile.
+ */
+export async function getBinaryFileFromDataURL(
+  dataURL: string,
+): Promise<ArrayBuffer> {
+  if (!dataURL) {
+    return null;
+  }
+  if (dataURL.match(/^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/i)) {
+    const hyperlink = dataURL;
+    const extension = getURLImageExtension(hyperlink);
+    const mimeType = getMimeType(extension);
+    dataURL = await getDataURLFromURL(hyperlink, mimeType);
+  }
+  const base64Match = dataURL.match(/base64,(.*)/);
+  if (!base64Match) {
+    return null;
+  }
+  const binaryString = window.atob(base64Match[1]);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
 
 export const blobToBase64 = async (blob: Blob): Promise<string> => {
-  const arrayBuffer = await blob.arrayBuffer()
-  const bytes = new Uint8Array(arrayBuffer)
-  let binary = '';
-  let len = bytes.byteLength;
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = "";
+  const len = bytes.byteLength;
   for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
-}
+};
 
 export const arrayBufferToBase64 = (arrayBuffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(arrayBuffer);
-  let binary = '';
-  
+  let binary = "";
+
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
@@ -301,214 +368,575 @@ export const arrayBufferToBase64 = (arrayBuffer: ArrayBuffer): string => {
   return btoa(binary);
 };
 
-export const getPDFDoc = async (f: TFile): Promise<any> => {
-  if(typeof window.pdfjsLib === "undefined") await loadPdfJs();
-  return await window.pdfjsLib.getDocument(EXCALIDRAW_PLUGIN.app.vault.getResourcePath(f)).promise;
-}
+export const getPDFDoc = async (f: TFile): Promise<PdfJsDocumentProxy> => {
+  if (typeof window.pdfjsLib === "undefined") {
+    await loadPdfJs();
+  }
 
-export const readLocalFile = async (filePath:string): Promise<string> => {
-  if (!DEVICE.isDesktop) return null;
-  return new Promise((resolve, reject) => {
-    //@ts-ignore
-    app.vault.adapter.fs.readFile(filePath, 'utf8', (err:any, data:any) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(data);
-      }
-    });
-  });
-}
+  const pdfjs = window.pdfjsLib;
+  const url = EXCALIDRAW_PLUGIN.app.vault.getResourcePath(f);
 
-export const readLocalFileBinary = async (filePath:string): Promise<ArrayBuffer> => {
-  if (!DEVICE.isDesktop) return null;
-  return new Promise((resolve, reject) => {
-    const path = decodeURI(filePath);
-    //@ts-ignore
-    app.vault.adapter.fs.readFile(path, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-        resolve(arrayBuffer);
-      }
-    });
-  });
-}
+  const workerSrc = pdfjs.GlobalWorkerOptions.workerSrc;
+  const workerDir = workerSrc?.replace(/pdf\.worker(\.min)?\.m?js$/, "");
+  const wasmUrl = workerDir ? `${workerDir}wasm/` : undefined;
 
-export const getPathWithoutExtension = (f:TFile): string => {
-  if(!f) return null;
+  return await pdfjs.getDocument({
+    url,
+    wasmUrl,
+    cMapUrl: "/lib/pdfjs/cmaps/",
+    cMapPacked: true,
+    standardFontDataUrl: "/lib/pdfjs/standard_fonts/",
+    iccUrl: "/lib/pdfjs/iccs/",
+  }).promise;
+};
+
+export const readLocalFile = async (filePath: string): Promise<string> => {
+  if (!DEVICE.isDesktop) {
+    return null;
+  }
+  const fsApi = await EXCALIDRAW_PLUGIN.extrasGateway.getFileSystem();
+  if (!fsApi) {
+    return null; // Gateway handles user prompting
+  }
+
+  return fsApi.readLocalFile(filePath, EXCALIDRAW_PLUGIN.app);
+};
+
+export const readLocalFileBinary = async (
+  filePath: string,
+): Promise<ArrayBuffer> => {
+  if (!DEVICE.isDesktop) {
+    return null;
+  }
+  const fsApi = await EXCALIDRAW_PLUGIN.extrasGateway.getFileSystem();
+  if (!fsApi) {
+    return null;
+  }
+
+  return fsApi.readLocalFileBinary(filePath, EXCALIDRAW_PLUGIN.app);
+};
+
+export const getPathWithoutExtension = (f: TFile): string => {
+  if (!f) {
+    return null;
+  }
   return f.path.substring(0, f.path.lastIndexOf("."));
-}
+};
 
-let _VAULT_BASE_URL:string = null;
+let _VAULT_BASE_URL: string = null;
 const VAULT_BASE_URL = () => {
-  if(_VAULT_BASE_URL) return _VAULT_BASE_URL;
+  if (_VAULT_BASE_URL) {
+    return _VAULT_BASE_URL;
+  }
   _VAULT_BASE_URL = DEVICE.isDesktop
-  ? EXCALIDRAW_PLUGIN.app.vault.adapter.url.pathToFileURL(EXCALIDRAW_PLUGIN.app.vault.adapter.basePath).toString()
-  : "";
+    ? EXCALIDRAW_PLUGIN.app.vault.adapter.url
+        .pathToFileURL(EXCALIDRAW_PLUGIN.app.vault.adapter.basePath)
+        .toString()
+    : "";
   return _VAULT_BASE_URL;
-}
+};
 
 export const getInternalLinkOrFileURLLink = (
-  path: string, plugin:ExcalidrawPlugin, alias?: string, sourceFile?: TFile
-):{link: string, isInternal: boolean, file?: TFile, url?: string} => {
-  if(!DEVICE.isDesktop) {
+  path: string,
+  plugin: ExcalidrawPlugin,
+  alias?: string,
+  sourceFile?: TFile,
+): { link: string; isInternal: boolean; file?: TFile; url?: string } => {
+  if (!DEVICE.isDesktop) {
     //I've not tested this... don't even know if external drag and drop works on mobile
     //Added this for safety
-    return {link: `[${alias??""}](${path})`, isInternal: false, url: path};  
+    return { link: `[${alias ?? ""}](${path})`, isInternal: false, url: path };
   }
   const vault = plugin.app.vault;
   const fileURLString = vault.adapter.url.pathToFileURL(path).toString();
   if (fileURLString.startsWith(VAULT_BASE_URL())) {
     const internalPath = normalizePath(
-      decodeURIComponent(fileURLString.substring(VAULT_BASE_URL().length))
+      decodeURIComponent(fileURLString.substring(VAULT_BASE_URL().length)),
     );
     const file = vault.getAbstractFileByPath(internalPath);
-    if(file && file instanceof TFile) {
+    if (file && file instanceof TFile) {
       const link = plugin.app.metadataCache.fileToLinktext(
         file,
         sourceFile?.path,
         true,
       );
-      return {link: getLink(plugin, { embed: false, path: link, alias}), isInternal: true, file};
-    };
+      return {
+        link: getLink(plugin, { embed: false, path: link, alias }),
+        isInternal: true,
+        file,
+      };
+    }
   }
-  return {link: `[${alias??""}](${fileURLString})`, isInternal: false, url: fileURLString};
-}
+  return {
+    link: `[${alias ?? ""}](${fileURLString})`,
+    isInternal: false,
+    url: fileURLString,
+  };
+};
 
 /**
  * get markdown or wiki link
- * @param plugin 
- * @param param1: { embed = true, path, alias } 
- * @returns 
+ * @param plugin
+ * @param param1: { embed = true, path, alias }
+ * @returns
  */
-export const getLink = ( 
+export const getLink = (
   plugin: ExcalidrawPlugin,
-  { embed = true, path, alias }: { embed?: boolean; path: string; alias?: string },
-  wikilinkOverride?: boolean
-):string => {
-  const isWikiLink = (typeof wikilinkOverride !== "undefined")
-    ? wikilinkOverride
-    : plugin.settings.embedWikiLink;
+  {
+    embed = true,
+    path,
+    alias,
+  }: { embed?: boolean; path: string; alias?: string },
+  wikilinkOverride?: boolean,
+): string => {
+  const isWikiLink =
+    typeof wikilinkOverride !== "undefined"
+      ? wikilinkOverride
+      : plugin.settings.embedWikiLink;
   return isWikiLink
     ? `${embed ? "!" : ""}[[${path}${alias ? `|${alias}` : ""}]]`
-    : `${embed ? "!" : ""}[${alias ?? ""}](${encodeURI(path)})`
-}
+    : `${embed ? "!" : ""}[${alias ?? ""}](${encodeURI(path)})`;
+};
 
 export const getAliasWithSize = (alias: string, size: string): string => {
-  if(alias && alias !== "") {
-    return `${alias}${size?`|${size}`:""}`;
+  if (alias && alias !== "") {
+    return `${alias}${size ? `|${size}` : ""}`;
   }
   return size;
-}
+};
 
-export const getCropFileNameAndFolder = async (plugin: ExcalidrawPlugin, hostPath: string, baseNewFileName: string):Promise<{folderpath: string, filename: string}> => {
-  let prefix = plugin.settings.cropPrefix;
-  if(!prefix || prefix.trim() === "") prefix = CROPPED_PREFIX;
-  const filename = prefix + baseNewFileName + ".md";
-  if(!plugin.settings.cropFolder || plugin.settings.cropFolder.trim() === "") {
-    const folderpath = (await getAttachmentsFolderAndFilePath(plugin.app, hostPath, filename)).folder;
-    return {folderpath, filename};
+export const getCropFileNameAndFolder = async (
+  plugin: ExcalidrawPlugin,
+  hostPath: string,
+  baseNewFileName: string,
+): Promise<{ folderpath: string; filename: string }> => {
+  const prefix = plugin.settings.cropPrefix || "";
+  const suffix = plugin.settings.cropSuffix || "";
+  const filename = `${prefix + baseNewFileName + suffix}.md`;
+  if (!plugin.settings.cropFolder || plugin.settings.cropFolder.trim() === "") {
+    const folderpath = (
+      await getAttachmentsFolderAndFilePath(plugin.app, hostPath, filename)
+    ).folder;
+    return { folderpath, filename };
   }
   const folderpath = normalizePath(plugin.settings.cropFolder);
   await checkAndCreateFolder(folderpath);
-  return {folderpath, filename};
-}
+  return { folderpath, filename };
+};
 
-export const getAnnotationFileNameAndFolder = async (plugin: ExcalidrawPlugin, hostPath: string, baseNewFileName: string):Promise<{folderpath: string, filename: string}> => {
-  let prefix = plugin.settings.annotatePrefix;
-  if(!prefix || prefix.trim() === "") prefix = ANNOTATED_PREFIX;
-  const filename = prefix + baseNewFileName + ".md";
-  if(!plugin.settings.annotateFolder || plugin.settings.annotateFolder.trim() === "") {
-    const folderpath = (await getAttachmentsFolderAndFilePath(plugin.app, hostPath, filename)).folder;
-    return {folderpath, filename};
+export const getAnnotationFileNameAndFolder = async (
+  plugin: ExcalidrawPlugin,
+  hostPath: string,
+  baseNewFileName: string,
+): Promise<{ folderpath: string; filename: string }> => {
+  const prefix = plugin.settings.annotatePrefix || "";
+  const suffix = plugin.settings.annotateSuffix || "";
+  const filename = `${prefix + baseNewFileName + suffix}.md`;
+  if (
+    !plugin.settings.annotateFolder ||
+    plugin.settings.annotateFolder.trim() === ""
+  ) {
+    const folderpath = (
+      await getAttachmentsFolderAndFilePath(plugin.app, hostPath, filename)
+    ).folder;
+    return { folderpath, filename };
   }
   const folderpath = normalizePath(plugin.settings.annotateFolder);
   await checkAndCreateFolder(folderpath);
-  return {folderpath, filename};
-}
+  return { folderpath, filename };
+};
 
-export const getListOfTemplateFiles = (plugin: ExcalidrawPlugin):TFile[] | null => {
-  const normalizedTemplatePath = normalizePath(plugin.settings.templateFilePath);
-  const template = plugin.app.vault.getAbstractFileByPath(normalizedTemplatePath);
-  if(template && template instanceof TFolder) {
-    return plugin.app.vault.getFiles()
-      .filter(f=>f.path.startsWith(template.path))
-      .filter(f=>plugin.isExcalidrawFile(f))
-      .sort((a,b)=>a.path.localeCompare(b.path))
+export const getListOfTemplateFiles = (
+  plugin: ExcalidrawPlugin,
+): TFile[] | null => {
+  if (!plugin.settings.templateFilePath.trim()) return null;
+  const normalizedTemplatePath = normalizePath(
+    plugin.settings.templateFilePath,
+  );
+  const template = plugin.app.vault.getAbstractFileByPath(
+    normalizedTemplatePath,
+  );
+  if (template && template instanceof TFolder) {
+    return plugin.app.vault
+      .getFiles()
+      .filter((f) => template.path === "/" || f.path.startsWith(`${template.path}/`))
+      .filter((f) => plugin.isExcalidrawFile(f))
+      .sort((a, b) => a.path.localeCompare(b.path));
   }
-  if(template && template instanceof TFile) {
+  if (template && template instanceof TFile) {
     return [template];
   }
   const templateFile = plugin.app.metadataCache.getFirstLinkpathDest(
     normalizedTemplatePath,
     "",
   );
-  if(templateFile) {
+  if (templateFile) {
     return [templateFile];
   }
   return null;
-}
+};
 
-export const fileShouldDefaultAsExcalidraw = (path:string, app:App):boolean => {
-  if(!path) return false;
+export const fileShouldDefaultAsExcalidraw = (
+  path: string,
+  app: App,
+): boolean => {
+  if (!path) {
+    return false;
+  }
   const cache = app.metadataCache.getCache(path);
-  return cache?.frontmatter &&
-    cache.frontmatter[FRONTMATTER_KEYS["plugin"].name] &&
-    !Boolean(cache.frontmatter[FRONTMATTER_KEYS["open-as-markdown"].name]);
+  return (
+    cache?.frontmatter &&
+    cache.frontmatter[FRONTMATTER_KEYS.plugin.name] &&
+    !cache.frontmatter[FRONTMATTER_KEYS["open-as-markdown"].name]
+  );
+};
+
+export interface NestedFileDependencyGraph extends DependencyGraph<TFile> {
+  nodes: Map<string, DependencyGraphNode<TFile>>;
 }
 
-export const getExcalidrawEmbeddedFilesFiletree = (sourceFile: TFile, plugin: ExcalidrawPlugin):TFile[] => {
-  if(!sourceFile || !plugin.isExcalidrawFile(sourceFile)) {
+export interface NestedFileDependencyGraphContext
+  extends NestedFileDependencyGraph {
+  includeImages: boolean;
+  parsedExcalidrawPaths: Set<string>;
+}
+
+export const createNestedFileDependencyGraphContext = (
+  includeImages = false,
+): NestedFileDependencyGraphContext => ({
+  includeImages,
+  nodes: new Map(),
+  parsedExcalidrawPaths: new Set(),
+});
+
+/**
+ * Builds a path-keyed dependency graph from Obsidian's metadata cache.
+ * A context may be shared by related queries so each Excalidraw file is parsed
+ * once. The context must remain scoped to one operation to avoid stale edges.
+ */
+export function getNestedFileDependencyGraph(
+  plugin: ExcalidrawPlugin,
+  rootFile: TFile,
+  includeImages = false,
+  sharedContext?: NestedFileDependencyGraphContext,
+): NestedFileDependencyGraph {
+  const context =
+    sharedContext?.includeImages === includeImages
+      ? sharedContext
+      : createNestedFileDependencyGraphContext(includeImages);
+  const pending = [rootFile];
+
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (!file || context.parsedExcalidrawPaths.has(file.path)) {
+      continue;
+    }
+    context.parsedExcalidrawPaths.add(file.path);
+
+    const uniqueChildren = new Map<string, TFile>();
+    const cache = plugin.app.metadataCache.getFileCache(file);
+    if (!cache?.links) {
+      context.nodes.set(file.path, { value: file, childKeys: [] });
+      continue;
+    }
+
+    let startLine = -1;
+    let endLine = Infinity;
+    let usingCommentFallback = false;
+
+    if (cache.headings) {
+      const embeddedFilesHeadingIndex = cache.headings.findIndex(
+        (heading) => heading.heading.toLowerCase() === "embedded files",
+      );
+      if (embeddedFilesHeadingIndex !== -1) {
+        const embeddedFilesHeading = cache.headings[embeddedFilesHeadingIndex];
+        startLine = embeddedFilesHeading.position.start.line;
+        for (
+          let index = embeddedFilesHeadingIndex + 1;
+          index < cache.headings.length;
+          index++
+        ) {
+          if (cache.headings[index].level <= embeddedFilesHeading.level) {
+            endLine = cache.headings[index].position.start.line;
+            break;
+          }
+        }
+      }
+    }
+
+    if (startLine === -1 && cache.sections) {
+      const commentSections = cache.sections.filter(
+        (section) => section.type === "comment",
+      );
+      if (commentSections.length > 0) {
+        const lastComment = commentSections[commentSections.length - 1];
+        startLine = lastComment.position.start.line;
+        endLine = lastComment.position.end.line;
+        usingCommentFallback = true;
+      }
+    }
+
+    if (startLine !== -1) {
+      for (const link of cache.links) {
+        if (
+          link.position.start.line <= startLine ||
+          link.position.start.line >= endLine ||
+          (usingCommentFallback && link.position.start.col <= 12)
+        ) {
+          continue;
+        }
+
+        const linkpath = link.link.split("|")[0].split("#")[0];
+        const linkedFile = plugin.app.metadataCache.getFirstLinkpathDest(
+          linkpath,
+          file.path,
+        );
+        if (!linkedFile) {
+          continue;
+        }
+
+        if (plugin.isExcalidrawFile(linkedFile)) {
+          uniqueChildren.set(linkedFile.path, linkedFile);
+          pending.push(linkedFile);
+        } else if (includeImages) {
+          uniqueChildren.set(linkedFile.path, linkedFile);
+          if (!context.nodes.has(linkedFile.path)) {
+            context.nodes.set(linkedFile.path, {
+              value: linkedFile,
+              childKeys: [],
+            });
+          }
+        }
+      }
+    }
+
+    context.nodes.set(file.path, {
+      value: file,
+      childKeys: Array.from(uniqueChildren.keys()),
+    });
+  }
+
+  return context;
+}
+
+export const getExcalidrawEmbeddedFilesFiletree = (
+  sourceFile: TFile,
+  plugin: ExcalidrawPlugin,
+): TFile[] => {
+  if (!sourceFile || !plugin.isExcalidrawFile(sourceFile)) {
     return [];
   }
 
-  const fileList = new Set<TFile>();
-  const app = plugin.app;
+  const graph = getNestedFileDependencyGraph(plugin, sourceFile, true);
+  return collectReachableDependencyValues(graph, sourceFile.path);
+};
 
-  const addAttachedImages = (f:TFile) => Object
-    .keys(app.metadataCache.resolvedLinks[f.path])
-    .forEach(path => {
-      const file = app.vault.getAbstractFileByPath(path);
-      if (!file || !(file instanceof TFile)) return;
-      const isExcalidraw = plugin.isExcalidrawFile(file);
-      if (
-        (file.extension === "md" && !isExcalidraw) ||
-        fileList.has(file) //avoid infinite loops
-      ) {
-        return;
-      }
-      fileList.add(file);
-      if (isExcalidraw) {
-        addAttachedImages(file);
-      }
-    });
+export const hasExcalidrawEmbeddedImagesTreeChanged = (
+  sourceFile: TFile,
+  mtime: number,
+  plugin: ExcalidrawPlugin,
+  sharedContext?: NestedFileDependencyGraphContext,
+): boolean => {
+  if (!sourceFile || !plugin.isExcalidrawFile(sourceFile)) {
+    return false;
+  }
 
-  addAttachedImages(sourceFile);
-  return Array.from(fileList);
+  const graph = getNestedFileDependencyGraph(
+    plugin,
+    sourceFile,
+    true,
+    sharedContext,
+  );
+  return hasReachableDependency(
+    graph,
+    sourceFile.path,
+    (file) => file.stat.mtime > mtime,
+  );
+};
+
+export async function exportImageToFile(
+  view: ExcalidrawView,
+  path: string,
+  content: string | ArrayBuffer | Blob,
+  extension: string,
+): Promise<TFile> {
+  const ea = view?.getHookServer();
+  if (ea?.onImageExportPathHook) {
+    try {
+      path =
+        ea.onImageExportPathHook({
+          exportFilepath: path,
+          exportExtension: extension,
+          excalidrawFile: view.file,
+          action: "export",
+        }) ?? path;
+    } catch (e: unknown) {
+      errorlog({
+        where: "fileUtils.exportImageToFile",
+        fn: ea.onImageExportPathHook,
+        error: e,
+      });
+    }
+  }
+  return await createOrOverwriteFile(view.app, path, content);
 }
 
-export const hasExcalidrawEmbeddedImagesTreeChanged = (sourceFile: TFile, mtime:number, plugin: ExcalidrawPlugin):boolean => {
-  const fileList = getExcalidrawEmbeddedFilesFiletree(sourceFile, plugin);
-  return fileList.some(f=>f.stat.mtime > mtime);
+/**
+ * Whether an image imported into `excalidrawFile` can be saved the way Obsidian saves an image pasted or
+ * dropped into a markdown note: through `app.saveAttachment`, which places it relative to the active file.
+ * That holds only while the drawing is the active file, and only when no `onImageFilePathHook` chooses the
+ * path instead.
+ */
+export function canSaveAsObsidianAttachment(
+  app: App,
+  excalidrawFile: TFile,
+  view?: ExcalidrawView,
+): boolean {
+  return (
+    !view?.getHookServer()?.onImageFilePathHook &&
+    app.workspace.getActiveFile()?.path === excalidrawFile.path
+  );
 }
 
-export async function createOrOverwriteFile(app: App, path: string, content: string | ArrayBuffer): Promise<TFile> {
-  const file = app.vault.getAbstractFileByPath(normalizePath(path));
-  if(content instanceof ArrayBuffer) {
-    if(file && file instanceof TFile) {
-      await app.vault.modifyBinary(file, content);
-      return file;
-    } else {
-      return await app.vault.createBinary(path, content);
+export async function importFileToVault(
+  app: App,
+  fname: string,
+  content: string | ArrayBuffer | Blob,
+  excalidrawFile: TFile,
+  view?: ExcalidrawView,
+): Promise<TFile> {
+  if (
+    typeof content !== "string" &&
+    canSaveAsObsidianAttachment(app, excalidrawFile, view)
+  ) {
+    const { basename, extension } = splitFolderAndFilename(fname);
+    const data =
+      content instanceof Blob ? await content.arrayBuffer() : content;
+    return await app.saveAttachment(basename, extension, data);
+  }
+
+  let hookFilepath: string;
+  const ea = view?.getHookServer();
+  if (ea?.onImageFilePathHook) {
+    try {
+      hookFilepath = ea.onImageFilePathHook({
+        currentImageName: fname,
+        drawingFilePath: excalidrawFile.path,
+      });
+    } catch (e: unknown) {
+      errorlog({
+        where: "fileUtils.importFileToVault",
+        fn: ea.onImageFilePathHook,
+        error: e,
+      });
     }
   }
 
-  if (file && file instanceof TFile) {
+  let filepath: string;
+  if (hookFilepath) {
+    const { folderpath, filename } = splitFolderAndFilename(hookFilepath);
+    await checkAndCreateFolder(folderpath);
+    filepath = getNewUniqueFilepath(app.vault, filename, folderpath);
+  } else {
+    const { folder } = await getAttachmentsFolderAndFilePath(
+      app,
+      excalidrawFile.path,
+      fname,
+    );
+    filepath = getNewUniqueFilepath(app.vault, fname, folder);
+  }
+
+  return await createOrOverwriteFile(app, filepath, content);
+}
+
+export async function createOrOverwriteFile(
+  app: App,
+  path: string,
+  content: string | ArrayBuffer | Blob,
+): Promise<TFile> {
+  path = normalizePath(path);
+  if (content instanceof Blob) {
+    content = await content.arrayBuffer();
+  }
+  const { folderpath } = splitFolderAndFilename(path);
+  if (folderpath) {
+    try {
+      await checkAndCreateFolder(folderpath);
+    } catch (error: unknown) {
+      if (!app.vault.getFolderByPath(folderpath)) {
+        throw error;
+      }
+    }
+  }
+  const file = app.vault.getFileByPath(path);
+  if (content instanceof ArrayBuffer) {
+    if (file) {
+      await app.vault.modifyBinary(file, content);
+      return file;
+    }
+    try {
+      return await app.vault.createBinary(path, content);
+    } catch (error: unknown) {
+      const racedFile = app.vault.getFileByPath(path);
+      if (!racedFile) {
+        throw error;
+      }
+      await app.vault.modifyBinary(racedFile, content);
+      return racedFile;
+    }
+  }
+
+  if (file) {
     await app.vault.modify(file, content);
     return file;
-  } else {
-    return await app.vault.create(path, content);
   }
+  try {
+    return await app.vault.create(path, content);
+  } catch (error: unknown) {
+    const racedFile = app.vault.getFileByPath(path);
+    if (!racedFile) {
+      throw error;
+    }
+    await app.vault.modify(racedFile, content);
+    return racedFile;
+  }
+}
+
+export async function createFileAndAwaitMetacacheUpdate(
+  app: App,
+  path: string,
+  content: string | ArrayBuffer | Blob,
+): Promise<TFile> {
+  path = normalizePath(path);
+  let ready = false;
+  const extension = path.substring(path.lastIndexOf(".") + 1);
+
+  //metadataCache.on("changed", (file:TFile) => void) does not fire for non-markdown files
+  if (extension === "md") {
+    const metaCache: MetadataCache = app.metadataCache;
+    const handler = (file: TFile) => {
+      if (file.path === path) {
+        metaCache.off("changed", handler);
+        ready = true;
+      }
+    };
+    metaCache.on("changed", handler);
+
+    const file = await createOrOverwriteFile(app, path, content);
+
+    if (!file) {
+      ready = true; //if file is null, it means it was not created, so we can skip waiting
+      metaCache.off("changed", handler);
+    }
+
+    let attempts = 0;
+    while (!ready && attempts++ < 15) {
+      await sleep(50);
+    }
+    if (!ready) {
+      metaCache.off("changed", handler); //if we timed out, remove the handler
+    }
+    return file;
+  }
+  return await createOrOverwriteFile(app, path, content);
 }

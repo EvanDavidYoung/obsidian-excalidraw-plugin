@@ -8,32 +8,63 @@ node.render();
 container.appendChild(node.contentEl)
 */
 
-import { TFile, WorkspaceLeaf, WorkspaceSplit } from "obsidian";
-import ExcalidrawView from "src/view/ExcalidrawView";
-import { getContainerForDocument, ConstructableWorkspaceSplit, isObsidianThemeDark } from "../../utils/obsidianUtils";
+import {
+  type App,
+  Editor,
+  TFile,
+  View,
+  WorkspaceLeaf,
+  WorkspaceSplit,
+} from "obsidian";
+import type ExcalidrawView from "src/view/ExcalidrawView";
+import {
+  getContainerForDocument,
+  ConstructableWorkspaceSplit,
+  isObsidianThemeDark,
+} from "../../utils/obsidianUtils";
 import { CustomMutationObserver, DEBUGGING } from "../../utils/debugHelper";
 
-declare module "obsidian" {
-  interface Workspace {
-    floatingSplit: any;
-  }
-
-  interface WorkspaceSplit {
-    containerEl: HTMLDivElement;
-  }
-}
+declare const mainDocument: Document;
 
 interface ObsidianCanvas {
-  createFileNode: Function;
-  removeNode: Function;
+  createFileNode: (params: {
+    pos: { x: number; y: number };
+    file: TFile;
+    subpath: string;
+    save: boolean;
+    focus: boolean;
+  }) => ObsidianCanvasNode;
+  removeNode: (node: ObsidianCanvasNode) => void;
+}
+
+type DetachedWorkspaceSplit = WorkspaceSplit & {
+  insertChild(index: number, child: WorkspaceLeaf, resize?: boolean): void;
+};
+
+type WorkspaceLeafConstructor = new (app: App) => WorkspaceLeaf;
+
+export interface ObsidianCanvasNodeChild extends View {
+  file?: TFile;
+  heading?: string;
+  text?: string;
+  subpath?: string;
+  lastSavedData?: string;
+  editor?: Editor & {
+    containerEl?: HTMLElement;
+  };
+  showPreview?(): void;
 }
 
 export interface ObsidianCanvasNode {
-  startEditing: Function;
-  child: any;
+  startEditing: () => void;
+  child: ObsidianCanvasNodeChild;
   isEditing: boolean;
   file: TFile;
-  detach: Function;
+  detach: () => void;
+  isEditable: () => boolean;
+  setFilePath: (path: string, subpath: string) => void;
+  render: () => void;
+  containerEl: HTMLElement;
 }
 
 export class CanvasNodeFactory {
@@ -42,58 +73,117 @@ export class CanvasNodeFactory {
   nodes = new Map<string, ObsidianCanvasNode>();
   initialized: boolean = false;
   public isInitialized = () => this.initialized;
+  private settleInitialized: (initialized: boolean) => void;
+  /**
+   * Settles true once `initialize()` succeeded, false once it failed or the
+   * factory was destroyed.
+   */
+  public readonly whenInitialized = new Promise<boolean>((resolve) => {
+    this.settleInitialized = resolve;
+  });
   private observer: CustomMutationObserver | MutationObserver;
+  private readonly pendingEditRequests = new WeakMap<
+    ObsidianCanvasNode,
+    object
+  >();
 
-  constructor(
-    private view: ExcalidrawView,
-  ) {
-  }
+  constructor(private view: ExcalidrawView) {}
 
   public async initialize() {
-    //@ts-ignore
-    const canvasPlugin = app.internalPlugins.plugins["canvas"];
-    
-    if(!canvasPlugin._loaded) {
-      await canvasPlugin.load();
+    try {
+      if (!this.view) {
+        return;
+      }
+      const app = this.view.app;
+      const canvasPlugin = app.internalPlugins.plugins.canvas;
+
+      if (!canvasPlugin._loaded) {
+        await canvasPlugin.load();
+      }
+      // Closing or migrating the view can destroy this factory during loading.
+      if (!this.view) {
+        return;
+      }
+      const doc = this.view.ownerDocument;
+      const rootSplit: WorkspaceSplit =
+        new (WorkspaceSplit as ConstructableWorkspaceSplit)(
+          app.workspace,
+          "vertical",
+        );
+      rootSplit.getRoot = () =>
+        app.workspace[doc === mainDocument ? "rootSplit" : "floatingSplit"];
+      rootSplit.getContainer = () => getContainerForDocument(doc);
+      // `workspace.createLeafInParent()` activates its new leaf and schedules a workspace layout
+      // update. That is observable even though this split is detached: on mobile it navigates away
+      // from an open sidebar that hosts an embedded Excalidraw view. Construct and insert the
+      // internal Canvas leaf directly so initialization has no workspace activation side effect.
+      const LeafConstructor = WorkspaceLeaf as unknown as WorkspaceLeafConstructor;
+      this.leaf = new LeafConstructor(app);
+      (rootSplit as DetachedWorkspaceSplit).insertChild(0, this.leaf);
+      this.canvas = canvasPlugin.views.canvas(this.leaf)
+        .canvas as ObsidianCanvas;
+      this.initialized = true;
+      this.settleInitialized(true);
+    } catch (error) {
+      this.settleInitialized(false);
+      throw error;
     }
-    const doc = this.view.ownerDocument;
-    const rootSplit:WorkspaceSplit = new (WorkspaceSplit as ConstructableWorkspaceSplit)(this.view.app.workspace, "vertical");
-    rootSplit.getRoot = () => this.view.app.workspace[doc === document ? 'rootSplit' : 'floatingSplit'];
-    rootSplit.getContainer = () => getContainerForDocument(doc);
-    this.leaf = this.view.app.workspace.createLeafInParent(rootSplit, 0);
-    this.canvas = canvasPlugin.views.canvas(this.leaf).canvas;
-    this.initialized = true;
   }
 
-  public createFileNote(file: TFile, subpath: string, containerEl: HTMLDivElement, elementId: string): ObsidianCanvasNode {
-    if(!this.initialized) return;
+  public createFileNote(
+    file: TFile,
+    subpath: string,
+    containerEl: HTMLDivElement,
+    elementId: string,
+  ): ObsidianCanvasNode {
+    if (!this.initialized) {
+      return;
+    }
     subpath = subpath ?? "";
-    if(this.nodes.has(elementId)) {
+    if (this.nodes.has(elementId)) {
       this.canvas.removeNode(this.nodes.get(elementId));
       this.nodes.delete(elementId);
     }
-    const node = this.canvas.createFileNode({pos: {x:0,y:0}, file, subpath, save: false});
-    node.setFilePath(file.path,subpath);
+    const node = this.canvas.createFileNode({
+      pos: { x: 0, y: 0 },
+      file,
+      subpath,
+      save: false,
+      // Internal preview creation must not take the workspace's active editor.
+      focus: false,
+    });
+    node.setFilePath(file.path, subpath);
     node.render();
-    //containerEl.style.background = "var(--background-primary)";
     node.containerEl.querySelector(".canvas-node-content-blocker")?.remove();
-    containerEl.appendChild(node.containerEl)
+    containerEl.appendChild(node.containerEl);
     this.nodes.set(elementId, node);
     return node;
   }
 
-  private async waitForEditor(node: ObsidianCanvasNode): Promise<HTMLElement | null> {
+  private async waitForEditor(
+    node: ObsidianCanvasNode,
+  ): Promise<HTMLElement | null> {
     let counter = 0;
-    while (!node.child.editor?.containerEl?.parentElement?.parentElement && counter++ < 100) {
-      await new Promise(resolve => setTimeout(resolve, 25));
+    while (
+      !node.child.editor?.containerEl?.parentElement?.parentElement &&
+      counter++ < 40
+    ) {
+      await sleep(25);
     }
     return node.child.editor?.containerEl?.parentElement?.parentElement;
   }
 
-  private setupThemeObserver(editorEl: HTMLElement, obsidianTheme: string, theme: string) {
+  private setupThemeObserver(
+    editorEl: HTMLElement,
+    obsidianTheme: string,
+    theme: string,
+  ) {
     const nodeObserverFn: MutationCallback = (mutationsList) => {
       for (const mutation of mutationsList) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+        if (
+          mutation.type === "attributes" &&
+          mutation.attributeName === "class"
+        ) {
           const targetElement = mutation.target as HTMLElement;
           if (targetElement.classList.contains(obsidianTheme)) {
             targetElement.classList.remove(obsidianTheme);
@@ -111,70 +201,130 @@ export class CanvasNodeFactory {
     this.observer.observe(editorEl, { attributes: true });
   }
 
-  public async startEditing(node: ObsidianCanvasNode, theme: string) {
-    if (!this.initialized || !node) return;
-    
+  public async startEditing(
+    node: ObsidianCanvasNode,
+    theme: string,
+    isEditingSelf: boolean,
+    elementId?: string,
+  ) {
+    if (!this.initialized || !node || !node.isEditable()) {
+      return;
+    }
+
+    const request = {};
+    this.pendingEditRequests.set(node, request);
     try {
-      //if (node.file === this.view.file) {
-        await this.view.setEmbeddableNodeIsEditing();
-      //}
+      if (isEditingSelf) {
+        await this.view.setEmbeddableNodeIsEditing(elementId);
+      }
+      if (
+        !this.initialized ||
+        this.pendingEditRequests.get(node) !== request
+      ) {
+        return;
+      }
+      this.pendingEditRequests.delete(node);
+
       node.startEditing();
       node.isEditing = true;
 
-      const obsidianTheme = isObsidianThemeDark() ? "theme-dark" : "theme-light";
-      if (obsidianTheme === theme) return;
+      const obsidianTheme = isObsidianThemeDark()
+        ? "theme-dark"
+        : "theme-light";
+      if (obsidianTheme === theme) {
+        return;
+      }
 
       const editorEl = await this.waitForEditor(node);
-      if (!editorEl) return;
+      if (!editorEl) {
+        return;
+      }
 
       editorEl.classList.remove(obsidianTheme);
       editorEl.classList.add(theme);
-      
+
       this.setupThemeObserver(editorEl, obsidianTheme, theme);
     } catch (error) {
-      console.error('Error starting edit:', error);
+      console.error("Error starting edit:", error);
       node.isEditing = false;
+      if (this.pendingEditRequests.get(node) === request) {
+        this.pendingEditRequests.delete(node);
+      }
+      if (isEditingSelf && this.pendingEditRequests.get(node) === undefined) {
+        this.view.clearEmbeddableNodeIsEditing(elementId);
+      }
     }
   }
 
-  public stopEditing(node: ObsidianCanvasNode) {
-    if (!this.initialized || !node || !node.isEditing) return;
-    
+  public stopEditing(node: ObsidianCanvasNode, elementId?: string) {
+    if (!node) {
+      return;
+    }
+    this.pendingEditRequests.delete(node);
+    this.view.clearEmbeddableNodeIsEditing(elementId);
+    if (!this.initialized || !node.isEditing || !node.isEditable()) return;
+
     try {
-      //if (node.file === this.view.file) {
-        this.view.clearEmbeddableNodeIsEditing();
-      //}
       node.child.showPreview();
       node.isEditing = false;
       this.observer?.disconnect();
     } catch (error) {
-      console.error('Error stopping edit:', error);
+      console.error("Error stopping edit:", error);
     }
   }
 
-  removeNode(node: ObsidianCanvasNode) {
-    if(!this.initialized || !node) return;
-    this.nodes.delete(node.file.path);
+  /**
+   * Removes a Canvas node and releases the factory's reference to it.
+   *
+   * The optional element ID is the map's canonical key. The identity check
+   * prevents a stale React cleanup from deleting a replacement node that was
+   * already registered for the same Excalidraw element.
+   */
+  public removeNode(node: ObsidianCanvasNode, elementId?: string) {
+    if (!this.initialized || !node) {
+      return;
+    }
+    this.pendingEditRequests.delete(node);
+    let registeredElementId: string | undefined;
+    if (elementId && this.nodes.get(elementId) === node) {
+      registeredElementId = elementId;
+      this.nodes.delete(elementId);
+    } else {
+      for (const [candidateElementId, registeredNode] of this.nodes) {
+        if (registeredNode === node) {
+          registeredElementId = candidateElementId;
+          this.nodes.delete(candidateElementId);
+          break;
+        }
+      }
+    }
+    if (registeredElementId) {
+      this.view.clearEmbeddableNodeIsEditing(registeredElementId);
+    }
     this.canvas.removeNode(node);
     node.detach();
   }
 
   public purgeNodes() {
-    if(!this.initialized) return;
-    this.nodes.forEach(node => {
+    if (!this.initialized) {
+      return;
+    }
+    this.nodes.forEach((node, elementId) => {
+      this.pendingEditRequests.delete(node);
+      this.view.clearEmbeddableNodeIsEditing(elementId);
       this.canvas.removeNode(node);
-      node.detach(); 
+      node.detach();
     });
     this.nodes.clear();
   }
 
   destroy() {
     this.purgeNodes();
-    this.initialized = false;  //calling after purgeNodes becaues purge nodes checks for initialized
+    this.initialized = false; //calling after purgeNodes becaues purge nodes checks for initialized
+    this.settleInitialized(false); //release anyone still waiting to be able to create a node
     this.observer?.disconnect();
     this.view = null;
     this.canvas = null;
     this.leaf = null;
   }
 }
-    

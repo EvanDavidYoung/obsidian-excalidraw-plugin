@@ -8,7 +8,6 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/garden/**/*.test.ts"],
     setupFiles: ["src/garden/test/setup.ts", "src/garden/test/lib.ts"],
-    server: { deps: { inline: [/@zsviczian\/excalidraw/] } },
     css: false,
   },
 });

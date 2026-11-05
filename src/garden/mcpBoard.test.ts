@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/excalidraw/element/types";
+import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/types";
 import { McpBoard, mergeScenes, upsertElements, wsUrlOf, type BoardEvents } from "./mcpBoard";
 
 const el = (id: string, props: Record<string, unknown> = {}) =>

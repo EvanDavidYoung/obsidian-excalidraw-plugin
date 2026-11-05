@@ -1,17 +1,33 @@
-import { App, FileView, WorkspaceLeaf } from "obsidian";
-import { VIEW_TYPE_EXCALIDRAW_LOADING } from "src/constants/constants";
+import { App, FileView, WorkspaceLeaf, type ViewStateResult } from "obsidian";
+import { DEVICE, VIEW_TYPE_EXCALIDRAW } from "src/constants/constants";
 import ExcalidrawPlugin from "src/core/main";
-import { setExcalidrawView } from "src/utils/obsidianUtils";
+import { t } from "src/lang/helpers";
+import { setElementDisplay } from "src/utils/htmlUtils";
+import { isUnwantedLeaf } from "src/utils/obsidianUtils";
 
-export function switchToExcalidraw(app: App) {
-  const leaves = app.workspace.getLeavesOfType(VIEW_TYPE_EXCALIDRAW_LOADING).filter(l=>l.view instanceof ExcalidrawLoading);
-  leaves.forEach(l=>(l.view as ExcalidrawLoading).switchToeExcalidraw());
+export async function switchToExcalidraw(app: App) {
+  const leaves: WorkspaceLeaf[] = [];
+  app.workspace.iterateAllLeaves((leaf) => {
+    if (leaf.view instanceof ExcalidrawLoading) {
+      leaves.push(leaf);
+    }
+  });
+  for (const leaf of leaves) {
+    await (leaf.view as ExcalidrawLoading)?.switchToExcalidraw();
+  }
 }
 
 export class ExcalidrawLoading extends FileView {
-  constructor(leaf: WorkspaceLeaf, private plugin: ExcalidrawPlugin) {
+  private integrationState: {
+    mode?: "view" | "edit";
+    zoomToFit?: true;
+  } = {};
+
+  constructor(
+    leaf: WorkspaceLeaf,
+    private plugin: ExcalidrawPlugin,
+  ) {
     super(leaf);
-    this.displayLoadingText();
   }
 
   public onload() {
@@ -19,30 +35,77 @@ export class ExcalidrawLoading extends FileView {
     this.displayLoadingText();
   }
 
-  public switchToeExcalidraw() {
-    setExcalidrawView(this.leaf);
+  /** Retains one-shot integration options while the loading view owns the leaf. */
+  public async setState(
+    state: Record<string, unknown>,
+    result: ViewStateResult,
+  ): Promise<void> {
+    this.integrationState = {
+      ...(state.mode === "view" || state.mode === "edit"
+        ? { mode: state.mode }
+        : {}),
+      ...(state.zoomToFit === true ? { zoomToFit: true as const } : {}),
+    };
+    await super.setState(state, result);
   }
-  
+
+  /** Includes retained integration options in the handoff to the real Excalidraw view. */
+  public getState(): Record<string, unknown> {
+    return { ...super.getState(), ...this.integrationState };
+  }
+
+  public async switchToExcalidraw() {
+    const prevLeaf = this.app.workspace.getLeaf();
+    const state = this.leaf.view.getState();
+    const preserveInactive = this.app.workspace.getMostRecentLeaf() !== this.leaf;
+    const inactiveResult = preserveInactive
+      ? ({ focus: false } as unknown as ViewStateResult)
+      : undefined;
+
+    // Force a fresh view instance: switching to the same type can be a no-op.
+    await this.leaf.setViewState({
+      type: "empty",
+      state: {},
+      ...(preserveInactive ? { active: false } : {}),
+    }, inactiveResult);
+    await this.leaf.setViewState({
+      type: VIEW_TYPE_EXCALIDRAW,
+      state,
+      ...(preserveInactive ? { active: false } : {}),
+    }, inactiveResult);
+    if (DEVICE.isDesktop) {
+      return;
+    }
+    await sleep(100); // added this 2026.04.19 after instances where the hack did not seem to work, but wasn't able to reliably reproduce. This timeout does not seem to cause any issues and may help in cases where the hack was not working due to some sort of race condition
+    const activeLeaf = this.app.workspace.getLeaf();
+    if (!activeLeaf) {
+      return;
+    }
+    if (
+      prevLeaf === this.leaf &&
+      activeLeaf !== prevLeaf &&
+      isUnwantedLeaf(activeLeaf)
+    ) {
+      activeLeaf.detach();
+    }
+  }
+
   getViewType(): string {
-    return VIEW_TYPE_EXCALIDRAW_LOADING;
+    return VIEW_TYPE_EXCALIDRAW;
   }
 
   getDisplayText() {
-    return "Loading Excalidraw... " + (this.file?.basename ?? "");
+    return `${t("INITIALIZATION_MESSAGE")} ${this.file?.basename ?? ""}`;
   }
 
   private displayLoadingText() {
     // Create a div element for displaying the text
-    const loadingTextEl = this.contentEl.createEl("div", {
-      text: this.getDisplayText()
+    const loadingTextEl = this.contentEl.createDiv({
+      text: this.getDisplayText(),
     });
-    
+
     // Apply styling to center the text
-    loadingTextEl.style.display = "flex";
-    loadingTextEl.style.alignItems = "center";
-    loadingTextEl.style.justifyContent = "center";
-    loadingTextEl.style.height = "100%";
-    loadingTextEl.style.fontSize = "1.5em"; // Adjust size as needed
+    setElementDisplay(loadingTextEl, "flex");
+    loadingTextEl.classList.add("excalidraw-loading");
   }
-  
 }
