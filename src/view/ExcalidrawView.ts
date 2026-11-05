@@ -6044,7 +6044,7 @@ export default class ExcalidrawView
   }
 
   public onChange(et: ExcalidrawElement[], st: AppState, files: BinaryFiles) {
-    this.plugin.garden?.onSceneChange(this, et); // garden fork
+    this.plugin.garden?.onSceneChange(); // garden fork
     this.selectedElementActionsMenu?.update(et, st);
     if (st.activeTool?.type) {
       if (st.activeTool.type === "image") {

@@ -3,7 +3,6 @@ import type { ExcalidrawElement } from "@zsviczian/excalidraw/types/element/src/
 import type { ExcalidrawImperativeAPI } from "@zsviczian/excalidraw/types/excalidraw/types";
 import type ExcalidrawPlugin from "../core/main";
 import type ExcalidrawView from "../view/ExcalidrawView";
-import { BoardLink } from "./boardLink";
 import { fetchQueue, type Request } from "./notesApi";
 import { middleOf, placeShelfItem, placeSite } from "./placement";
 import { mergePlaced, placedSiteIds, queuedSites } from "./queue";
@@ -16,13 +15,12 @@ import type { Site } from "./sites";
 
 /**
  * The digital garden inside Obsidian Excalidraw: a sidebar queue of cards from
- * the notes server (`pipeline categorize`) to place on any drawing, and one
- * drawing that follows the MCP board Claude draws on. Upstream code only calls
+ * the notes server (`pipeline categorize`) to place on any drawing, and a shelf
+ * of bits dragged off drawings. Upstream code only calls
  * the three on…() hooks below; everything else lives in this folder.
  */
 export class Garden {
   settings: GardenSettings = withDefaults(null);
-  private link: { view: ExcalidrawView; board: BoardLink } | null = null;
   /** The drawing last worked on, which the queue places cards into. */
   private target: ExcalidrawView | null = null;
   private picks = 0;
@@ -102,8 +100,6 @@ export class Garden {
   }
 
   unload() {
-    this.link?.board.stop();
-    this.link = null;
     this.styleEl?.remove();
   }
 
@@ -116,34 +112,14 @@ export class Garden {
     this.waiting.get(path)?.(view);
     this.waiting.delete(path);
     if (!this.target) this.target = view;
-    if (path === this.settings.boardDrawing) this.startBoard(view);
   }
 
-  onSceneChange(view: ExcalidrawView, elements: readonly ExcalidrawElement[]) {
-    if (this.link?.view === view) this.link.board.localChange(elements);
+  onSceneChange() {
     this.refreshQueueSoon();
   }
 
   onViewUnload(view: ExcalidrawView) {
-    if (this.link?.view === view) {
-      this.link.board.stop();
-      this.link = null;
-    }
     if (this.target === view) this.target = null;
-  }
-
-  // ── The board drawing ─────────────────────────────────────────────────
-
-  private startBoard(view: ExcalidrawView) {
-    this.link?.board.stop();
-    this.link = null;
-    const api = view.excalidrawAPI as ExcalidrawImperativeAPI | null;
-    if (!this.settings.boardUrl || !api) return;
-    const board = new BoardLink(api, this.settings.boardUrl, {
-      onStatus: status => { if (status === "offline") console.info("Garden: MCP board offline, retrying"); },
-    });
-    this.link = { view, board };
-    board.start();
   }
 
   // ── The queue ─────────────────────────────────────────────────────────
@@ -339,13 +315,6 @@ export class Garden {
     new GardenSettingsModal(this.plugin.app, this.settings, async next => {
       this.settings = next;
       await this.plugin.app.vault.adapter.write(this.settingsPath, JSON.stringify(next, null, 2));
-      // Follow (or stop following) the board under the new settings.
-      if (this.link) this.startBoard(this.link.view);
-      else {
-        const open = this.plugin.app.workspace.getLeavesOfType("excalidraw")
-          .map(l => l.view as ExcalidrawView).find(v => v.file?.path === next.boardDrawing);
-        if (open) this.startBoard(open);
-      }
       this.refreshQueueSoon(0);
     }).open();
   }
